@@ -662,6 +662,8 @@ bool SubmitTagSelection(int selected_index)
 
     recording_archive_service::SaveOptions options = {};
     options.tag = kTagOptions[static_cast<size_t>(selected_index)].tag;
+    const bool gemini_ready = gemini_service::GetSnapshot().runtime.ready;
+    options.pending_transcription = !gemini_ready;
     ESP_LOGI(kTag,
              "Starting archive save: tag=%s samples=%u duration_ms=%lu",
              recording_archive_service::TagName(options.tag),
@@ -679,11 +681,11 @@ bool SubmitTagSelection(int selected_index)
              save_result.metadata_path.empty() ? "<none>" : save_result.metadata_path.c_str(),
              save_result.error_code.empty() ? "<none>" : save_result.error_code.c_str());
 
-    const bool should_transcribe = save_result.clip_saved && gemini_service::GetSnapshot().runtime.ready;
+    const bool should_transcribe = save_result.clip_saved && gemini_ready;
     ESP_LOGI(kTag,
              "Transcription decision: clip_saved=%d gemini_ready=%d should_transcribe=%d",
              save_result.clip_saved ? 1 : 0,
-             gemini_service::GetSnapshot().runtime.ready ? 1 : 0,
+             gemini_ready ? 1 : 0,
              should_transcribe ? 1 : 0);
 
     {

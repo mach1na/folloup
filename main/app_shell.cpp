@@ -46,6 +46,7 @@
 #include "summarize_page_runtime.h"
 #include "summary_service.h"
 #include "timezone_service.h"
+#include "transcription_retry_service.h"
 #include "transcription_service.h"
 #include "ui_refresh_runtime.h"
 #include "wifi_service.h"
@@ -71,6 +72,8 @@ constexpr TickType_t kPowerButtonReleaseSettleDelay = pdMS_TO_TICKS(500);
 TaskHandle_t s_shutdown_task = nullptr;
 std::atomic<bool> s_startup_complete = false;
 std::atomic<bool> s_gemini_ready = false;
+uint32_t s_last_transcription_retry_generation = 0;
+std::atomic<int> s_last_footer_pending_transcription_count{-1};
 std::mutex s_recording_session_feedback_mutex;
 recording_session_service::Phase s_last_recording_session_feedback_phase =
     recording_session_service::Phase::kIdle;
@@ -1178,6 +1181,7 @@ void HandleGeminiEvent(const gemini_service::Event& event, void*)
     const bool was_ready = s_gemini_ready.exchange(ready, std::memory_order_relaxed);
     if (ready && !was_ready) {
         PlayFeedback(feedback_service::FeedbackEvent::kGeminiConnected);
+        (void)transcription_retry_service::RetryPending();
     }
 
     const esp_err_t status_bar_err =
@@ -1550,8 +1554,19 @@ void InitTimezoneService()
     }
 }
 
-void HandleRecordingArchiveEvent(const recording_archive_service::Event&, void*)
+void HandleRecordingArchiveEvent(const recording_archive_service::Event& event, void*)
 {
+    const int pending = event.snapshot.pending_transcription_count;
+    if (s_last_footer_pending_transcription_count.exchange(pending, std::memory_order_relaxed) !=
+        pending) {
+        const esp_err_t footer_err = footer_runtime::UpdateDisplayStateAndRequestRefresh(
+            display_service::RefreshMode::kPartial);
+        if (footer_err != ESP_OK && footer_err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(kTag, "Footer update after archive event failed: %s",
+                     esp_err_to_name(footer_err));
+        }
+    }
+
     const bool home_active = ScreenActiveForRefresh(display_service::ScreenId::kHome);
     const esp_err_t err = dashboard_page_runtime::SyncFromService(home_active);
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
@@ -1640,6 +1655,46 @@ void InitTranscriptionService()
     const esp_err_t err = transcription_service::Init();
     if (err != ESP_OK) {
         ESP_LOGW(kTag, "Transcription service init failed: %s", esp_err_to_name(err));
+    }
+}
+
+void HandleTranscriptionRetryEvent(const transcription_retry_service::Event& event, void*)
+{
+    const auto& s = event.snapshot;
+    if (s.batch_in_flight || s.last_batch_attempted == 0 ||
+        s.last_batch_generation == s_last_transcription_retry_generation) {
+        return;
+    }
+    s_last_transcription_retry_generation = s.last_batch_generation;
+
+    std::string text;
+    EmbeddedIconId icon = EmbeddedIconId::kCheck;
+    if (s.last_batch_failed == 0) {
+        text = std::to_string(s.last_batch_succeeded) +
+               (s.last_batch_succeeded == 1 ? " note transcribed" : " notes transcribed");
+    } else if (s.last_batch_succeeded == 0) {
+        icon = EmbeddedIconId::kClose;
+        text = std::to_string(s.last_batch_failed) +
+               (s.last_batch_failed == 1 ? " note needs manual retry" : " notes need manual retry");
+    } else {
+        icon = EmbeddedIconId::kClose;
+        text = std::to_string(s.last_batch_succeeded) + " transcribed, " +
+               std::to_string(s.last_batch_failed) +
+               (s.last_batch_failed == 1 ? " needs manual retry" : " need manual retry");
+    }
+    const esp_err_t err =
+        overlay_runtime::ShowToastForDuration(BuildToast(text.c_str(), icon), 2500);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Show transcription retry toast failed: %s", esp_err_to_name(err));
+    }
+}
+
+void InitTranscriptionRetryService()
+{
+    transcription_retry_service::SetEventHandler(HandleTranscriptionRetryEvent, nullptr);
+    const esp_err_t err = transcription_retry_service::Init();
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "Transcription retry service init failed: %s", esp_err_to_name(err));
     }
 }
 
@@ -1751,6 +1806,7 @@ void Run()
     InitWifiService();
     InitRecordingService();
     InitTranscriptionService();
+    InitTranscriptionRetryService();
     InitRecordingSessionService();
     InitFooterRuntime();
     StartShutdownTask();

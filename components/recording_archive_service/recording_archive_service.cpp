@@ -37,7 +37,7 @@ using ArchiveMetadata = RecordingMetadata;
 // without an SD scan; the on-demand scan then reconciles and only repaints if they changed.
 constexpr const char* kSnapshotNvsNamespace = "rec_archive";
 constexpr const char* kSnapshotNvsKey = "counts";
-constexpr uint32_t kSnapshotNvsVersion = 1;
+constexpr uint32_t kSnapshotNvsVersion = 2;
 
 struct PersistedCounts {
     uint32_t version = kSnapshotNvsVersion;
@@ -47,6 +47,7 @@ struct PersistedCounts {
     int32_t follow_up_recording_count = 0;
     int32_t completed_todo_count = 0;
     int32_t incomplete_todo_count = 0;
+    int32_t pending_transcription_count = 0;
 };
 
 std::mutex s_mutex;
@@ -267,6 +268,7 @@ std::string SerializeMetadata(const ArchiveMetadata& metadata)
     cJSON_AddBoolToObject(root, "time_valid", metadata.time_valid);
     cJSON_AddNumberToObject(root, "duration_ms", metadata.duration_ms);
     cJSON_AddBoolToObject(root, "has_transcript", metadata.has_transcript);
+    cJSON_AddBoolToObject(root, "pending_transcription", metadata.pending_transcription);
     cJSON_AddStringToObject(root, "tag", TagName(metadata.tag));
     cJSON_AddBoolToObject(root, "completed", metadata.completed);
     cJSON_AddBoolToObject(root, "follow_up", metadata.follow_up);
@@ -323,6 +325,9 @@ bool ParseMetadata(const std::string& json, ArchiveMetadata* metadata)
 
     cJSON* has_transcript = cJSON_GetObjectItemCaseSensitive(root, "has_transcript");
     parsed.has_transcript = cJSON_IsTrue(has_transcript);
+
+    cJSON* pending_transcription = cJSON_GetObjectItemCaseSensitive(root, "pending_transcription");
+    parsed.pending_transcription = cJSON_IsTrue(pending_transcription);
 
     cJSON* tag = cJSON_GetObjectItemCaseSensitive(root, "tag");
     if (cJSON_IsString(tag) && tag->valuestring != nullptr) {
@@ -444,6 +449,7 @@ esp_err_t SaveClipOnMountedFilesystem(const char* mount_point, void* context)
     metadata.created_local_date = FormatLocalDate(now_s, &metadata.time_valid);
     metadata.duration_ms = save->clip->duration_ms();
     metadata.has_transcript = false;
+    metadata.pending_transcription = save->options.pending_transcription;
     metadata.tag = save->options.tag;
 
     result.clip_saved = WriteClipWav(result.recording_path, *save->clip);
@@ -530,6 +536,7 @@ esp_err_t SaveTranscriptOnMountedFilesystem(const char* mount_point, void* conte
     std::string metadata_json;
     if (ReadTextFile(result.metadata_path, &metadata_json) && ParseMetadata(metadata_json, &metadata)) {
         metadata.has_transcript = true;
+        metadata.pending_transcription = false;
         const std::string updated_json = SerializeMetadata(metadata);
         ESP_LOGI(kTag,
                  "Updating metadata JSON for transcript: id=%s bytes=%u",
@@ -632,6 +639,9 @@ esp_err_t ScanDirectoryInto(const std::string& directory, Snapshot* snapshot)
         if (metadata.follow_up) {
             snapshot->follow_up_recording_count++;
         }
+        if (metadata.pending_transcription) {
+            snapshot->pending_transcription_count++;
+        }
         if (IsTodoRecordingTag(metadata.tag)) {
             snapshot->todo_recording_count++;
             if (metadata.completed) {
@@ -680,6 +690,8 @@ struct MutateContext {
     bool follow_up_completed = false;
     bool set_tag = false;
     RecordingTag tag = RecordingTag::kNote;
+    bool set_pending_transcription = false;
+    bool pending_transcription = false;
     bool applied = false;
 };
 
@@ -711,6 +723,9 @@ esp_err_t MutateMetadataOnMountedFilesystem(const char* mount_point, void* conte
     }
     if (mutate->set_tag) {
         metadata.tag = mutate->tag;
+    }
+    if (mutate->set_pending_transcription) {
+        metadata.pending_transcription = mutate->pending_transcription;
     }
 
     const std::string updated = SerializeMetadata(metadata);
@@ -983,7 +998,8 @@ bool SnapshotCountsEqual(const Snapshot& lhs, const Snapshot& rhs)
            lhs.todo_recording_count == rhs.todo_recording_count &&
            lhs.follow_up_recording_count == rhs.follow_up_recording_count &&
            lhs.completed_todo_count == rhs.completed_todo_count &&
-           lhs.incomplete_todo_count == rhs.incomplete_todo_count;
+           lhs.incomplete_todo_count == rhs.incomplete_todo_count &&
+           lhs.pending_transcription_count == rhs.pending_transcription_count;
 }
 
 bool LoadSnapshotFromNvs(Snapshot* out)
@@ -1008,6 +1024,7 @@ bool LoadSnapshotFromNvs(Snapshot* out)
     out->follow_up_recording_count = counts.follow_up_recording_count;
     out->completed_todo_count = counts.completed_todo_count;
     out->incomplete_todo_count = counts.incomplete_todo_count;
+    out->pending_transcription_count = counts.pending_transcription_count;
     return true;
 }
 
@@ -1025,6 +1042,7 @@ void SaveSnapshotToNvs(const Snapshot& snapshot)
         .follow_up_recording_count = snapshot.follow_up_recording_count,
         .completed_todo_count = snapshot.completed_todo_count,
         .incomplete_todo_count = snapshot.incomplete_todo_count,
+        .pending_transcription_count = snapshot.pending_transcription_count,
     };
     if (nvs_set_blob(handle, kSnapshotNvsKey, &counts, sizeof(counts)) == ESP_OK) {
         nvs_commit(handle);
@@ -1258,6 +1276,22 @@ bool MarkRecordingCompleted(const std::string& recording_id, bool completed)
     context.recording_id = recording_id.c_str();
     context.set_completed = true;
     context.completed = completed;
+    (void)storage_service::RunWithMountedFilesystem(MutateMetadataOnMountedFilesystem, &context);
+    if (context.applied) {
+        (void)Refresh();
+    }
+    return context.applied;
+}
+
+bool ClearPendingTranscription(const std::string& recording_id)
+{
+    if (recording_id.empty()) {
+        return false;
+    }
+    MutateContext context = {};
+    context.recording_id = recording_id.c_str();
+    context.set_pending_transcription = true;
+    context.pending_transcription = false;
     (void)storage_service::RunWithMountedFilesystem(MutateMetadataOnMountedFilesystem, &context);
     if (context.applied) {
         (void)Refresh();

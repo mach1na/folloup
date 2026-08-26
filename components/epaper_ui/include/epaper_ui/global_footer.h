@@ -2,6 +2,7 @@
 #define EPAPER_UI_GLOBAL_FOOTER_H_
 
 #include <cstdint>
+#include <string>
 
 #include "epaper_ui/overlay_geometry.h"
 
@@ -24,6 +25,9 @@ struct FooterButtonState {
     bool visible = false;
     bool selected = false;
     const EmbeddedImageAsset* icon = nullptr;
+    // Small numeric badge overlaid on this button's icon (e.g. a pending-work count).
+    bool shows_badge = false;
+    std::string badge_text = {};
 };
 
 struct FooterMicState {
