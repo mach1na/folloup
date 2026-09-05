@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 
+#include "epaper_ui/badge.h"
 #include "epaper_ui/button_icon.h"
 #include "epaper_ui/layout_grid.h"
 #include "epaper_ui/mic_status.h"
@@ -309,6 +310,18 @@ void DrawGlobalFooter(uint8_t* framebuffer,
                        button_cell.y + std::max(0, (button_cell.height - button_style.size) / 2),
                        {.asset = ResolveButtonIcon(*button), .selected = button->selected},
                        button_style);
+
+        if (button->shows_badge && !button->badge_text.empty()) {
+            const BadgeState badge = {.label_text = button->badge_text, .inverse = false};
+            const BadgeStyle badge_style = {};
+            const UiRect badge_bounds = BadgeBounds(0, 0, badge, badge_style);
+            const int icon_top =
+                button_cell.y + std::max(0, (button_cell.height - button_style.size) / 2);
+            DrawBadge(framebuffer, raw_width, raw_height, portrait_width, portrait_height,
+                      cursor_x + design::global_footer::kButtonSize - (badge_bounds.width / 2),
+                      icon_top - (badge_bounds.height / 2), badge, badge_style);
+        }
+
         cursor_x += design::global_footer::kButtonSize + kButtonGap;
     }
 

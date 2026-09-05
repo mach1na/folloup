@@ -14,10 +14,6 @@
 
 #include "cJSON.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
-#include "freertos/task.h"
-#include "followup_task_config.h"
 #include "gemini_service.h"
 #include "recording_archive_service.h"
 #include "storage_service.h"
@@ -32,8 +28,6 @@ constexpr int kSummaryChunkTokenBudget = 60000;
 constexpr int kSummaryRollupTokenBudget = 120000;
 constexpr int kMaxRollupDepth = 4;
 constexpr size_t kMinSplittableChars = 1024;
-constexpr UBaseType_t kSummaryQueueDepth = 4;
-constexpr uint32_t kWorkerTaskStackWords = 8192;
 
 using recording_archive_service::RecordingEntry;
 using recording_archive_service::RecordingMetadata;
@@ -55,15 +49,10 @@ struct GenerationResult {
     std::string error_message = {};
 };
 
-struct QueuedRequest {
-    SummaryKind kind = SummaryKind::kNone;
-};
-
 std::mutex s_mutex;
 EventHandler s_event_handler = nullptr;
 void* s_event_context = nullptr;
 Snapshot s_snapshot = {};
-QueueHandle_t s_queue = nullptr;
 
 // --- small helpers ---------------------------------------------------------
 
@@ -951,17 +940,6 @@ void ProcessSummaryRequest(SummaryKind kind)
     CompleteSummaryRequest(kind, result);
 }
 
-void WorkerTask(void*)
-{
-    while (true) {
-        QueuedRequest request = {};
-        if (s_queue == nullptr || xQueueReceive(s_queue, &request, portMAX_DELAY) != pdTRUE) {
-            continue;
-        }
-        ProcessSummaryRequest(request.kind);
-    }
-}
-
 }  // namespace
 
 esp_err_t Init()
@@ -971,21 +949,6 @@ esp_err_t Init()
         std::lock_guard<std::mutex> lock(s_mutex);
         if (s_snapshot.initialized) {
             return ESP_OK;
-        }
-        if (s_queue == nullptr) {
-            s_queue = xQueueCreate(kSummaryQueueDepth, sizeof(QueuedRequest));
-            if (s_queue == nullptr) {
-                ESP_LOGE(kTag, "Failed to create summary queue");
-                return ESP_ERR_NO_MEM;
-            }
-            if (xTaskCreatePinnedToCore(WorkerTask, "summary_service", kWorkerTaskStackWords, nullptr,
-                                        followup_task_config::kPriorityGemini, nullptr,
-                                        followup_task_config::kSystemCore) != pdPASS) {
-                ESP_LOGE(kTag, "Failed to start summary worker");
-                vQueueDelete(s_queue);
-                s_queue = nullptr;
-                return ESP_ERR_NO_MEM;
-            }
         }
         s_snapshot.initialized = true;
         should_refresh = true;
@@ -1044,10 +1007,9 @@ bool RequestSummary(SummaryKind kind)
         return false;
     }
 
-    QueueHandle_t queue = nullptr;
     {
         std::lock_guard<std::mutex> lock(s_mutex);
-        if (!s_snapshot.initialized || s_queue == nullptr || s_snapshot.request.in_flight) {
+        if (!s_snapshot.initialized || s_snapshot.request.in_flight) {
             return false;
         }
         s_snapshot.request.in_flight = true;
@@ -1057,24 +1019,11 @@ bool RequestSummary(SummaryKind kind)
         s_snapshot.request.error_code.clear();
         s_snapshot.request.error_message.clear();
         ++s_snapshot.request_generation;
-        queue = s_queue;
         NotifyLocked();
     }
 
-    const QueuedRequest request = {.kind = kind};
-    if (xQueueSend(queue, &request, 0) == pdTRUE) {
-        return true;
-    }
-
-    std::lock_guard<std::mutex> lock(s_mutex);
-    s_snapshot.request.in_flight = false;
-    s_snapshot.request.phase = RequestPhase::kFailed;
-    s_snapshot.request.status_message = "Unable to queue summary request";
-    s_snapshot.request.error_code = "queue_full";
-    s_snapshot.request.error_message = "Unable to queue summary request";
-    ++s_snapshot.request_generation;
-    NotifyLocked();
-    return false;
+    gemini_service::RunOnWorker([kind]() { ProcessSummaryRequest(kind); });
+    return true;
 }
 
 const char* SummaryKindName(SummaryKind kind)

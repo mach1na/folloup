@@ -1,8 +1,11 @@
 #include "footer_runtime.h"
 
+#include <string>
+
 #include "esp_check.h"
 #include "esp_log.h"
 #include "project_assets.h"
+#include "recording_archive_service.h"
 #include "recording_service.h"
 #include "ui_refresh_runtime.h"
 
@@ -150,6 +153,11 @@ epaper_ui::GlobalFooterState BuildState()
 
     state.folder.visible = layout.show_folder;
     state.folder.icon = FooterIcon(FooterFocusItem::kFolder);
+    const int pending_transcription_count =
+        recording_archive_service::GetSnapshot().pending_transcription_count;
+    state.folder.shows_badge = pending_transcription_count > 0;
+    state.folder.badge_text =
+        pending_transcription_count > 0 ? std::to_string(pending_transcription_count) : std::string();
 
     state.sticky.visible = layout.show_sticky;
     state.sticky.icon = FooterIcon(FooterFocusItem::kSticky);

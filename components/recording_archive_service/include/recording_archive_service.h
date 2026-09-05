@@ -26,6 +26,9 @@ struct RecordingMetadata {
     bool time_valid = false;
     uint32_t duration_ms = 0;
     bool has_transcript = false;
+    // Set when a recording is saved while Gemini isn't ready (no Wi-Fi / not authenticated) so a
+    // background worker can retry it once, automatically, the next time Gemini becomes ready.
+    bool pending_transcription = false;
     RecordingTag tag = RecordingTag::kNote;
     bool completed = false;
     bool follow_up = false;
@@ -46,6 +49,9 @@ struct RecordingEntry {
 
 struct SaveOptions {
     RecordingTag tag = RecordingTag::kNote;
+    // Caller-computed: true when Gemini wasn't ready at save time, so the saved recording should
+    // be flagged for one automatic retry attempt later.
+    bool pending_transcription = false;
 };
 
 struct SaveResult {
@@ -74,6 +80,7 @@ struct Snapshot {
     int follow_up_recording_count = 0;
     int completed_todo_count = 0;
     int incomplete_todo_count = 0;
+    int pending_transcription_count = 0;
 };
 
 struct Event {
@@ -113,6 +120,9 @@ bool MarkRecordingFollowUp(const std::string& recording_id, bool follow_up,
                            bool follow_up_completed);
 // Change a recording's tag (e.g. turn a Note into a Task) and re-aggregate the archive counts.
 bool UpdateRecordingTag(const std::string& recording_id, RecordingTag tag);
+// Ends the one automatic retry attempt for a note whose transcription failed: clears the
+// pending flag but leaves has_transcript false so the manual "Transcribe" button still shows.
+bool ClearPendingTranscription(const std::string& recording_id);
 
 SaveResult SaveClip(const recording_service::RecordedClip& clip,
                     const SaveOptions& options = {});

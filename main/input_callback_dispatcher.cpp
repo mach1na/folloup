@@ -79,9 +79,8 @@ void InputCallbackDispatcher::Initialize() {
         &s_task,
         followup_task_config::kAppCore);
     if (created != pdPASS || s_task == nullptr) {
-        ESP_LOGE(kTag, "Failed to start input callback dispatcher task");
+        ESP_LOGW(kTag, "Failed to start input callback dispatcher task; will retry on next dispatch");
         s_task = nullptr;
-        ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
     }
 }
 
@@ -105,7 +104,9 @@ void InputCallbackDispatcher::Dispatch(std::function<void()> callback) {
         });
     }
 
-    xTaskNotifyGive(s_task);
+    if (s_task != nullptr) {
+        xTaskNotifyGive(s_task);
+    }
 }
 
 void InputCallbackDispatcher::DispatchLatest(uint32_t key, std::function<void()> callback) {
@@ -134,5 +135,7 @@ void InputCallbackDispatcher::DispatchLatest(uint32_t key, std::function<void()>
         });
     }
 
-    xTaskNotifyGive(s_task);
+    if (s_task != nullptr) {
+        xTaskNotifyGive(s_task);
+    }
 }

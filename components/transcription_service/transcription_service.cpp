@@ -1,25 +1,16 @@
 #include "transcription_service.h"
 
-#include <memory>
 #include <mutex>
-#include <new>
 #include <string>
+#include <utility>
 
 #include "esp_log.h"
-#include "followup_task_config.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "gemini_service.h"
 
 namespace transcription_service {
 namespace {
 
 constexpr const char* kTag = "TranscriptionSvc";
-constexpr uint32_t kWorkerTaskStackWords = 8192;
-
-struct TaskContext {
-    recording_service::RecordedClipPtr clip = {};
-};
 
 std::mutex s_mutex;
 EventHandler s_event_handler = nullptr;
@@ -61,10 +52,10 @@ void NotifyLocked()
 
 // Runs the (blocking) Gemini audio transcription and publishes the result. The Gemini HTTP now
 // lives in gemini_service::Transcribe; this service owns the async lifecycle + snapshot/events.
-void WorkerTask(void* raw_context)
+// Runs on gemini_service's shared worker task (see gemini_service::RunOnWorker).
+void RunTranscriptionJob(recording_service::RecordedClipPtr clip)
 {
-    std::unique_ptr<TaskContext> context(static_cast<TaskContext*>(raw_context));
-    if (!context || !context->clip || context->clip->empty()) {
+    if (!clip || clip->empty()) {
         std::lock_guard<std::mutex> lock(s_mutex);
         s_request_in_flight = false;
         s_last_http_status = 0;
@@ -73,11 +64,10 @@ void WorkerTask(void* raw_context)
         s_last_error_message = "No recorded audio available";
         s_last_transcript.clear();
         NotifyLocked();
-        vTaskDelete(nullptr);
         return;
     }
 
-    const gemini_service::TranscriptionResult result = gemini_service::Transcribe(*context->clip);
+    const gemini_service::TranscriptionResult result = gemini_service::Transcribe(*clip);
 
     {
         std::lock_guard<std::mutex> lock(s_mutex);
@@ -107,8 +97,6 @@ void WorkerTask(void* raw_context)
         }
         NotifyLocked();
     }
-
-    vTaskDelete(nullptr);
 }
 
 }  // namespace
@@ -194,35 +182,11 @@ bool BeginTranscription(recording_service::RecordedClipPtr clip)
         NotifyLocked();
     }
 
-    TaskContext* task_context = new (std::nothrow) TaskContext();
-    if (task_context == nullptr) {
-        std::lock_guard<std::mutex> lock(s_mutex);
-        s_request_in_flight = false;
-        s_last_status_message = "Transcription unavailable";
-        s_last_error_code = "task_context_alloc_failed";
-        s_last_error_message = "Failed to allocate transcription task context";
-        NotifyLocked();
-        return false;
-    }
-    task_context->clip = std::move(clip);
-
-    TaskHandle_t task = nullptr;
-    const BaseType_t created = xTaskCreatePinnedToCore(
-        WorkerTask, "transcription", kWorkerTaskStackWords, task_context,
-        followup_task_config::kPriorityGemini, &task, followup_task_config::kSystemCore);
-    if (created != pdPASS) {
-        delete task_context;
-        std::lock_guard<std::mutex> lock(s_mutex);
-        s_request_in_flight = false;
-        s_last_status_message = "Transcription unavailable";
-        s_last_error_code = "task_start_failed";
-        s_last_error_message = "Failed to queue transcription task";
-        NotifyLocked();
-        return false;
-    }
-
     ESP_LOGI(kTag, "Starting Gemini transcription: samples=%u",
-             static_cast<unsigned>(task_context->clip->sample_count()));
+             static_cast<unsigned>(clip->sample_count()));
+    gemini_service::RunOnWorker([clip = std::move(clip)]() mutable {
+        RunTranscriptionJob(std::move(clip));
+    });
     return true;
 }
 
