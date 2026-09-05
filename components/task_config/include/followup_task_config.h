@@ -29,10 +29,5 @@ inline constexpr UBaseType_t kPriorityGemini = 2;
 // last-good values off the UI path, so a poll that loses a race to SD/display
 // bus activity simply retries on the next cycle without ever blocking a refresh.
 inline constexpr UBaseType_t kPrioritySensorPoll = 2;
-// One-shot background batch that re-attempts transcription for notes saved while Gemini
-// wasn't ready. Runs the same load-clip -> transcribe -> save pipeline as the UI's manual
-// "Transcribe" worker, just batched and triggered off a Gemini ready-edge; kept at this low
-// tier so it never preempts recording/UI/display work.
-inline constexpr UBaseType_t kPriorityTranscriptionRetry = 2;
 
 }  // namespace followup_task_config

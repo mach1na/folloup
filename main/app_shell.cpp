@@ -1783,6 +1783,10 @@ void Run()
     ConfirmPendingOtaImage();
     ESP_ERROR_CHECK(power_service::Init());
     power_service::LogDebugStatus();
+    // Gemini's shared worker task (32KB stack, see gemini_service::RunOnWorker) needs the
+    // largest contiguous internal-RAM block it's ever going to get, so it's reserved here,
+    // before feedback/storage/display/Wi-Fi/audio have a chance to fragment the heap.
+    InitGeminiService();
     InitFeedbackService();
     // On this board the SD card needs to enter and stay in SPI mode before
     // the shared-bus display path is brought up.
@@ -1802,7 +1806,6 @@ void Run()
     InitDeviceSleepRuntime();
     InitTimezoneService();
     InitRecordingArchiveService();
-    InitGeminiService();
     InitWifiService();
     InitRecordingService();
     InitTranscriptionService();

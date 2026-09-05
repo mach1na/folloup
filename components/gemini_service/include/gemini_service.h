@@ -2,6 +2,7 @@
 #define GEMINI_SERVICE_H_
 
 #include <cstdint>
+#include <functional>
 #include <string>
 
 #include "esp_err.h"
@@ -117,6 +118,11 @@ TextResult GenerateText(const std::string& prompt);
 TokenCountResult CountTokens(const std::string& prompt);
 TranscriptionResult Transcribe(const recording_service::RecordedClip& clip);
 bool BeginAuthentication();
+// Runs `job` on gemini_service's shared, persistent worker task (one 32KB-stack task reused
+// by every Gemini-backed caller -- transcription_service, summary_service,
+// transcription_retry_service -- rather than each spinning up its own). Jobs run one at a
+// time, in submission order; never call this from a UI/input task with a job that blocks.
+void RunOnWorker(std::function<void()> job);
 void SetNetworkState(bool connected, bool access_point_mode);
 void RegisterPortalRoutes(httpd_handle_t server);
 

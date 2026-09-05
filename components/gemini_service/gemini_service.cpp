@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -15,6 +16,7 @@
 
 #include "cJSON.h"
 #include "esp_crt_bundle.h"
+#include "esp_crypto_lock.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -32,15 +34,26 @@ constexpr const char* kTag = "GeminiService";
 constexpr const char* kSettingsTag = "GeminiSettings";
 constexpr const char* kStorageNamespace = "gemini";
 constexpr const char* kStorageApiKey = "api_key";
-constexpr const char* kDefaultModelName = "models/gemini-2.5-flash-lite";
+constexpr const char* kDefaultModelName = "models/gemini-3.5-flash-lite";
 constexpr const char* kGeminiApiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/";
 constexpr const char* kPortalApiSettingsGeminiUri = "/api/settings/gemini";
 constexpr const char* kPortalApiSettingsGeminiResetUri = "/api/settings/gemini/reset";
 constexpr const char* kPortalApiRuntimeGeminiUri = "/api/runtime/gemini";
 constexpr size_t kMaxPortalPayloadLen = 512;
 constexpr int kAuthTimeoutMs = 15000;
+// The first authentication attempt right after a fresh Wi-Fi connection routinely loses a race
+// with DNS/routing actually becoming usable (observed: DHCP lease at T, auth attempt at T+30ms,
+// ESP_ERR_HTTP_CONNECT every time). Retry a bounded number of times, only while still connected,
+// so a transient race self-heals without ever retrying forever and draining battery on a dead key.
+constexpr int kMaxAuthTransportRetries = 3;
+constexpr uint64_t kAuthRetryDelayUs = 3'000'000;  // 3s: enough margin for the network to settle
 constexpr int kGenerateTimeoutMs = 60000;  // text generation can be slow for large prompts
-constexpr uint32_t kAuthTaskStackWords = 8192;
+// Shared by every Gemini-backed worker job (auth, transcription, summary, offline retry) --
+// see RunOnWorker below. One persistent task sized for the heaviest job (HTTPS/TLS) rather
+// than four separate one-off tasks: internal DRAM on this board is too tight to reserve
+// four 32KB stacks concurrently, and per-call task creation fails once the heap fragments.
+constexpr uint32_t kWorkerTaskStackWords = 8192;
+constexpr const char* kWorkerTaskName = "gemini_worker";
 
 // Audio transcription (resumable file upload + generateContent-with-fileData).
 constexpr const char* kUploadUrl =
@@ -69,11 +82,95 @@ struct HttpResponse {
     std::string upload_url;  // captured from the x-goog-upload-url header (resumable upload)
 };
 
-struct AuthTaskContext {
-    std::string api_key;
-    std::string model_name;
-    uint32_t generation = 0;
-};
+std::mutex s_worker_mutex;
+std::deque<std::function<void()>> s_worker_jobs;
+TaskHandle_t s_worker_task = nullptr;
+
+void WorkerTaskFn(void*)
+{
+    while (true) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        while (true) {
+            std::function<void()> job;
+            {
+                std::lock_guard<std::mutex> lock(s_worker_mutex);
+                if (s_worker_jobs.empty()) {
+                    break;
+                }
+                job = std::move(s_worker_jobs.front());
+                s_worker_jobs.pop_front();
+            }
+            if (job) {
+                job();
+            }
+        }
+    }
+}
+
+// Creates the shared worker task if it isn't already running. Safe to call repeatedly --
+// if creation fails (internal RAM momentarily too fragmented), a later call retries.
+void EnsureWorkerStarted()
+{
+    std::lock_guard<std::mutex> lock(s_worker_mutex);
+    if (s_worker_task != nullptr) {
+        return;
+    }
+    const BaseType_t created = xTaskCreatePinnedToCore(
+        WorkerTaskFn,
+        kWorkerTaskName,
+        kWorkerTaskStackWords,
+        nullptr,
+        followup_task_config::kPriorityGemini,
+        &s_worker_task,
+        followup_task_config::kSystemCore);
+    if (created != pdPASS || s_worker_task == nullptr) {
+        ESP_LOGW(kTag, "Failed to start Gemini worker task; will retry on next job");
+        s_worker_task = nullptr;
+    }
+}
+
+// ESP-IDF lazily allocates a small newlib lock object the first time each hardware crypto
+// peripheral (MPI/bignum, SHA+AES, HMAC, DS) is used, and that allocation aborts the whole
+// device on failure rather than returning an error -- there's no graceful path through it.
+// A TLS handshake exercises several of these (MPI for EC certificate validation, SHA for
+// hashing, ...), and this board's internal DRAM is tight enough that a lazy allocation deep
+// in a handshake can lose the race. Force all of them to allocate once, right here, while
+// internal DRAM is at its cleanest (right after power_service::Init(), before display/Wi-Fi/
+// audio fragment it), so the real handshake later never needs to allocate one for the first
+// time under pressure. Each pair is fully acquired-then-released before the next starts, so
+// this is safe regardless of whether the underlying locks are recursive.
+void WarmCryptoHardwareLocks()
+{
+#if SOC_MPI_SUPPORTED
+    esp_crypto_mpi_lock_acquire();
+    esp_crypto_mpi_lock_release();
+#endif
+#if defined(SOC_SHA_SUPPORTED) || defined(SOC_AES_SUPPORTED)
+    esp_crypto_sha_aes_lock_acquire();
+    esp_crypto_sha_aes_lock_release();
+#endif
+#if SOC_HMAC_SUPPORTED
+    esp_crypto_hmac_lock_acquire();
+    esp_crypto_hmac_lock_release();
+#endif
+#if SOC_DIG_SIGN_SUPPORTED
+    esp_crypto_ds_lock_acquire();
+    esp_crypto_ds_lock_release();
+#endif
+#if SOC_ECC_SUPPORTED
+    esp_crypto_ecc_lock_acquire();
+    esp_crypto_ecc_lock_release();
+#endif
+#if SOC_ECDSA_SUPPORTED
+    esp_crypto_ecdsa_lock_acquire();
+    esp_crypto_ecdsa_lock_release();
+#endif
+#if SOC_KEY_MANAGER_SUPPORTED
+    esp_crypto_key_manager_lock_acquire();
+    esp_crypto_key_manager_lock_release();
+#endif
+}
 
 std::mutex s_mutex;
 EventHandler s_event_handler = nullptr;
@@ -85,6 +182,8 @@ bool s_request_in_flight = false;
 bool s_auth_checked = false;
 bool s_authenticated = false;
 uint32_t s_auth_generation = 0;
+int s_auth_retry_count = 0;
+esp_timer_handle_t s_auth_retry_timer = nullptr;
 int s_last_http_status = 0;
 std::string s_stored_api_key;
 std::string s_last_status_message;
@@ -432,6 +531,52 @@ AuthResult Authenticate(const std::string& api_key, const std::string& model_nam
     return result;
 }
 
+void MaybeBeginAuthentication();  // defined below; forward-declared for AuthRetryTimerCallback
+
+void AuthRetryTimerCallback(void*)
+{
+    MaybeBeginAuthentication();
+}
+
+// Schedules a delayed retry for a transport-level auth failure only -- not a real API
+// rejection (bad key, bad model, quota, etc.), which retrying would never fix. Bounded by
+// kMaxAuthTransportRetries and skipped entirely once Wi-Fi is no longer connected, so a dead
+// key or an out-of-range device doesn't retry forever.
+void MaybeScheduleAuthRetry(const AuthResult& result)
+{
+    if (result.success || result.error_code != "transport_error") {
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (!s_network_connected || s_auth_retry_count >= kMaxAuthTransportRetries) {
+            return;
+        }
+        ++s_auth_retry_count;
+    }
+
+    if (s_auth_retry_timer == nullptr) {
+        const esp_timer_create_args_t timer_args = {
+            .callback = &AuthRetryTimerCallback,
+            .arg = nullptr,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "gemini_auth_retry",
+            .skip_unhandled_events = true,
+        };
+        if (esp_timer_create(&timer_args, &s_auth_retry_timer) != ESP_OK) {
+            ESP_LOGW(kTag, "Failed to create Gemini auth retry timer");
+            s_auth_retry_timer = nullptr;
+            return;
+        }
+    }
+
+    const esp_err_t start_err = esp_timer_start_once(s_auth_retry_timer, kAuthRetryDelayUs);
+    if (start_err != ESP_OK) {
+        ESP_LOGW(kTag, "Failed to arm Gemini auth retry timer: %s", esp_err_to_name(start_err));
+    }
+}
+
 void CompleteAuthentication(uint32_t generation, const AuthResult& result)
 {
     bool stale_result = false;
@@ -474,6 +619,7 @@ void CompleteAuthentication(uint32_t generation, const AuthResult& result)
                  result.http_status,
                  result.error_code.empty() ? "http_error" : result.error_code.c_str(),
                  result.error_message.empty() ? "unknown" : result.error_message.c_str());
+        MaybeScheduleAuthRetry(result);
     } else {
         ESP_LOGI(kTag, "Gemini authentication succeeded: model=%s display=%s http=%d",
                  result.model_resource_name.empty() ? "unknown"
@@ -486,25 +632,11 @@ void CompleteAuthentication(uint32_t generation, const AuthResult& result)
     Notify();
 }
 
-void AuthenticationTask(void* arg)
+void RunAuthenticationJob(const std::string& api_key, const std::string& model_name,
+                          uint32_t generation)
 {
-    std::unique_ptr<AuthTaskContext> context(static_cast<AuthTaskContext*>(arg));
-    if (context == nullptr) {
-        CompleteAuthentication(0, AuthResult{
-            .success = false,
-            .http_status = 0,
-            .model_resource_name = {},
-            .model_display_name = {},
-            .error_code = "task_context_missing",
-            .error_message = "Gemini authentication task context missing",
-        });
-        vTaskDelete(nullptr);
-        return;
-    }
-
-    const AuthResult result = Authenticate(context->api_key, context->model_name);
-    CompleteAuthentication(context->generation, result);
-    vTaskDelete(nullptr);
+    const AuthResult result = Authenticate(api_key, model_name);
+    CompleteAuthentication(generation, result);
 }
 
 void MaybeBeginAuthentication()
@@ -1109,6 +1241,12 @@ esp_err_t Init()
         snapshot = BuildSnapshotLocked();
     }
 
+    // Start the shared worker as early as Init() runs (ideally before display/Wi-Fi have
+    // fragmented internal DRAM) so its 32KB stack has the best chance of finding a
+    // contiguous block. The task then sits idle until the first job is enqueued.
+    EnsureWorkerStarted();
+    WarmCryptoHardwareLocks();
+
     ESP_LOGI(kTag, "Gemini service initialized: configured=%d source=%s key_last4=%s",
              snapshot.settings.configured ? 1 : 0,
              ApiKeySourceName(snapshot.settings.api_key_source),
@@ -1118,6 +1256,24 @@ esp_err_t Init()
     Notify();
     MaybeBeginAuthentication();
     return ESP_OK;
+}
+
+void RunOnWorker(std::function<void()> job)
+{
+    if (!job) {
+        return;
+    }
+
+    EnsureWorkerStarted();
+
+    {
+        std::lock_guard<std::mutex> lock(s_worker_mutex);
+        s_worker_jobs.push_back(std::move(job));
+    }
+
+    if (s_worker_task != nullptr) {
+        xTaskNotifyGive(s_worker_task);
+    }
 }
 
 void SetEventHandler(EventHandler handler, void* context)
@@ -1176,6 +1332,7 @@ Result ApplySettingsPatch(const SettingsPatch& patch)
             s_request_in_flight = false;
             s_auth_checked = false;
             s_authenticated = false;
+            s_auth_retry_count = 0;  // a newly-entered key deserves a fresh retry budget
             s_last_http_status = 0;
             s_last_status_message = "Gemini API key stored";
             s_last_model_resource_name.clear();
@@ -1487,8 +1644,6 @@ bool BeginAuthentication()
     std::string api_key_last4;
     uint32_t auth_generation = 0;
     bool missing_api_key = false;
-    bool task_alloc_failed = false;
-    bool task_start_failed = false;
     {
         std::lock_guard<std::mutex> lock(s_mutex);
         if (!s_initialized) {
@@ -1537,43 +1692,10 @@ bool BeginAuthentication()
 
     Notify();
 
-    std::unique_ptr<AuthTaskContext> context(new (std::nothrow) AuthTaskContext{
-        .api_key = std::move(api_key),
-        .model_name = std::move(model_name),
-        .generation = auth_generation,
+    RunOnWorker([api_key = std::move(api_key), model_name = std::move(model_name),
+                 auth_generation]() mutable {
+        RunAuthenticationJob(api_key, model_name, auth_generation);
     });
-    if (context == nullptr) {
-        task_alloc_failed = true;
-    } else {
-        TaskHandle_t task_handle = nullptr;
-        const BaseType_t created = xTaskCreatePinnedToCore(
-            AuthenticationTask,
-            "gemini_auth",
-            kAuthTaskStackWords,
-            context.get(),
-            followup_task_config::kPriorityGemini,
-            &task_handle,
-            followup_task_config::kSystemCore);
-        if (created != pdPASS || task_handle == nullptr) {
-            task_start_failed = true;
-        } else {
-            context.release();
-        }
-    }
-
-    if (task_alloc_failed || task_start_failed) {
-        {
-            std::lock_guard<std::mutex> lock(s_mutex);
-            s_request_in_flight = false;
-            s_last_status_message = "Failed to start Gemini authentication";
-            SetLastErrorLocked(task_alloc_failed ? "task_alloc_failed" : "task_start_failed",
-                               task_alloc_failed
-                                   ? "Failed to allocate Gemini task context"
-                                   : "Failed to start Gemini authentication task");
-        }
-        Notify();
-        return false;
-    }
 
     ESP_LOGI(kTag, "Starting Gemini authentication (model=%s, source=%s, key_last4=%s)",
              GetEffectiveModelName().c_str(),
@@ -1586,8 +1708,14 @@ void SetNetworkState(bool connected, bool access_point_mode)
 {
     {
         std::lock_guard<std::mutex> lock(s_mutex);
+        const bool was_connected = s_network_connected;
         s_network_connected = connected;
         s_access_point_mode = access_point_mode;
+        if (connected && !was_connected) {
+            // A fresh connection (first join, or reconnect after moving out of range) gets
+            // its own full transport-retry budget rather than inheriting an exhausted one.
+            s_auth_retry_count = 0;
+        }
     }
     MaybeBeginAuthentication();
 }
