@@ -22,10 +22,11 @@ Auto sleep is split between policy and hardware runtime code:
 The device moves through three stages:
 
 - `awake`: normal app behavior.
-- `display_sleeping`: the e-paper panel has refreshed to a blank screen and
-  then entered panel sleep.
-- `light_sleeping`: the e-paper panel has refreshed to a blank screen, entered
-  panel sleep, and the ESP32-S3 has entered `esp_light_sleep_start()`.
+- `display_sleeping`: the e-paper panel has entered panel sleep with its last
+  content still on the glass (deliberately not blanked — see Display Sleep
+  below).
+- `light_sleeping`: the e-paper panel has entered panel sleep (last content
+  still on the glass) and the ESP32-S3 has entered `esp_light_sleep_start()`.
 
 Motion or user interaction wakes the display from `display_sleeping`.
 `ACTION` / `GPIO0` or the PMIC interrupt wakes the ESP32-S3 from `light_sleeping`.
@@ -55,12 +56,22 @@ period, the runtime asks `display_service` to enter display sleep.
 
 The display sequence is:
 
-1. Refresh the e-paper panel to a blank screen.
-2. Wait for the e-paper refresh to finish.
-3. Put the e-paper panel into sleep.
-4. Leave the panel asleep until motion or user interaction wakes it.
+1. Repaint the status bar with the sleep indicator (a small partial refresh;
+   this is the only pixel change made for sleep).
+2. Put the e-paper panel into sleep (`panel.Sleep()`, the SSD1677 deep-sleep
+   command) without otherwise touching the framebuffer.
+3. Leave the panel asleep, with its last screen content still on the glass,
+   until motion or user interaction wakes it.
 
-Motion or user interaction wakes the display and restores the blank app surface
+This is intentional, not a shortcut: e-paper holds its image with no power
+once the panel is asleep, so a frozen screen (plus the sleep indicator) shows
+at a glance that the device is powered down but still holding state, which is
+more useful than a blank screen that looks indistinguishable from "off" or
+"broken." It also costs no extra refresh cycle against the panel's ghosting
+budget (see `kMaxPartialRefreshesBeforeFlush` in
+`components/epaper_panel/ssd1677_driver.cpp`).
+
+Motion or user interaction wakes the display and restores the app surface
 with a full refresh.
 
 ## Light Sleep
@@ -91,8 +102,9 @@ The light-sleep sequence is:
 4. Suspend the button-service polling timer, so light sleep's clock jump cannot
    replay a burst of missed ticks and destroy click classification on wake.
 5. Arm wake-only `ACTION` event suppression.
-6. Refresh the e-paper panel to a blank screen.
-7. Wait for the e-paper refresh to finish and put the panel into sleep.
+6. Repaint the status bar with the sleep indicator (partial refresh).
+7. Put the e-paper panel into sleep, leaving its last content on the glass
+   (see Display Sleep above — deliberate, not a blank screen).
 8. Call `esp_light_sleep_start()`.
 9. On wake, disarm the GPIO wake sources, restore the `ACTION` pad, and resume
    button polling before anything slow runs.
