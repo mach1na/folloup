@@ -8,7 +8,7 @@ IDF_PY=${IDF_PY:-idf.py}
 IDF_BAUD=${IDF_BAUD:-460800}
 
 log() {
-  printf '[esp-idf-scripts] %s\n' "$*"
+  printf '[esp-idf-scripts] %s\n' "$*" >&2
 }
 
 print_shell_setup_hint() {
