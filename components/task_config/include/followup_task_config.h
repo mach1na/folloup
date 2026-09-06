@@ -22,7 +22,6 @@ inline constexpr UBaseType_t kPriorityUiRefresh = 4;
 inline constexpr UBaseType_t kPriorityAppSleep = 4;
 inline constexpr UBaseType_t kPriorityAppShutdown = 4;
 inline constexpr UBaseType_t kPriorityDisplay = 3;
-inline constexpr UBaseType_t kPrioritySleepMotion = 3;
 inline constexpr UBaseType_t kPriorityWifiTransition = 3;
 inline constexpr UBaseType_t kPriorityWifiCallbacks = 3;
 inline constexpr UBaseType_t kPriorityStorage = 2;
