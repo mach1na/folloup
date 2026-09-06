@@ -70,6 +70,10 @@ public:
     int partial_refresh_count() const { return partial_refresh_count_; }
     bool RequiresBaseRefresh() const;
     bool CanPartialRefresh(int max_partial_refreshes) const;
+    // True once the consecutive-partial-refresh soft budget is reached and the panel's
+    // contrast has started to fade enough to warrant a full re-drive. Does not force
+    // anything by itself -- it's up to the caller to decide when to act on it.
+    bool NeedsGhostingFlush() const;
 
 private:
     esp_err_t InitSpiPort();

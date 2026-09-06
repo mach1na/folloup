@@ -43,6 +43,10 @@ constexpr int kPortraitWidth = WAVESHARE_EPD_HEIGHT;
 constexpr int kPortraitHeight = WAVESHARE_EPD_WIDTH;
 constexpr int kSplashLogoGap = design::spacing::k16;
 constexpr uint32_t kDisplayTaskStackWords = 4096;
+// How long DisplayTask waits for a new command, once EpaperPanel::NeedsGhostingFlush()
+// is true, before treating the gap as "input paused" and running the deferred full
+// refresh below instead of waiting for the panel's own hard ceiling to force it inline.
+constexpr uint32_t kGhostingFlushIdleMs = 500;
 
 enum class DisplayCommandType {
     kSetScreen,
@@ -1103,7 +1107,28 @@ void DisplayTask(void*)
     command.screen = ScreenId::kHome;
     command.refresh_request.refresh_mode = RefreshMode::kPartial;
     while (true) {
-        if (xQueueReceive(s_command_queue, &command, portMAX_DELAY) != pdTRUE) {
+        // Normally block indefinitely for the next command. But once the panel's
+        // consecutive-partial-refresh soft budget is spent, poll with a short timeout
+        // instead: a gap of kGhostingFlushIdleMs with no new command means input has
+        // paused, which is the point to run the deferred ghosting flush below rather
+        // than forcing it inline on whichever partial refresh happens to hit the panel's
+        // hard ceiling.
+        TickType_t wait_ticks = portMAX_DELAY;
+        {
+            std::lock_guard<std::mutex> lock(s_panel_mutex);
+            if (!s_display_sleeping && Panel().NeedsGhostingFlush()) {
+                wait_ticks = pdMS_TO_TICKS(kGhostingFlushIdleMs);
+            }
+        }
+
+        if (xQueueReceive(s_command_queue, &command, wait_ticks) != pdTRUE) {
+            std::lock_guard<std::mutex> lock(s_panel_mutex);
+            if (!s_display_sleeping && Panel().NeedsGhostingFlush()) {
+                const esp_err_t err = RefreshCurrentScreenLocked(RefreshMode::kFull);
+                if (err != ESP_OK) {
+                    ESP_LOGW(kTag, "Deferred ghosting flush failed: %s", esp_err_to_name(err));
+                }
+            }
             continue;
         }
 
