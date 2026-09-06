@@ -55,12 +55,3 @@ esp_err_t I2cDevice::ReadReg(uint8_t reg, uint8_t* value, int timeout_ms) {
     return ReadRegs(reg, value, 1, timeout_ms);
 }
 
-void I2cDevice::WriteRegOrDie(uint8_t reg, uint8_t value) {
-    ESP_ERROR_CHECK(WriteReg(reg, value));
-}
-
-uint8_t I2cDevice::ReadRegOrDie(uint8_t reg) {
-    uint8_t value = 0;
-    ESP_ERROR_CHECK(ReadReg(reg, &value));
-    return value;
-}

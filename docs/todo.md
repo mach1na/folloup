@@ -270,20 +270,19 @@ immediately after a real sync succeeds.
 
 Fix: change to `std::atomic<bool>`.
 
-## Latent abort-on-error hazard in i2c_device.cc (currently dead code)
+## ~~Latent abort-on-error hazard in i2c_device.cc (currently dead code)~~ — resolved
 
 `WriteRegOrDie`/`ReadRegOrDie` (`components/i2c_device/i2c_device.cc:58-66`)
-wrap register access in `ESP_ERROR_CHECK`, which calls `abort()` on any
+wrapped register access in `ESP_ERROR_CHECK`, which calls `abort()` on any
 non-OK result — contradicting the "transient I2C contention is expected"
 handling used elsewhere on the same shared bus (e.g.
 `power_service.cpp`'s `FillRtcStatus` downgrades a failed read to
-`ESP_LOGD` rather than crashing). Confirmed unused today by both
-`axp2101`/`qmi8658`, so this is a foot-gun rather than an active bug: if
-either driver ever adopts these for convenience, a single transient bus
-glitch would hard-crash/reboot the device.
+`ESP_LOGD` rather than crashing). Confirmed unused by both
+`axp2101`/`qmi8658` (and everything else in the tree), so this was a
+foot-gun rather than an active bug.
 
-Fix: remove the `OrDie` variants, or make them log-and-return like the rest
-of the shared-bus error handling.
+Fixed: removed both functions (declaration + implementation) rather than
+softening them, since nothing used them.
 
 ## Hardcoded task priority literal in wifi_service.cpp
 
