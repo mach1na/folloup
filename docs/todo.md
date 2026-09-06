@@ -323,18 +323,30 @@ permanently disabling that button until the page is manually reloaded.
 Fix: add a reasonable timeout (`AbortController` + `setTimeout`) to
 `fetchApiJson`, surfacing a timeout error like any other failure.
 
-## Setup portal doesn't enforce the firmware's Wi-Fi credential length limit client-side
+## ~~Setup portal doesn't enforce the firmware's Wi-Fi credential length limit client-side~~ — resolved
 
 `webserver/index.html:43-49` (`<ui-input id="password" variant="password">`,
 no `maxlength`) and `webserver/src/portal/wifi.ts:275-284` (`connect()`)
-only check for a non-empty password — no upper bound — while
+only checked for a non-empty password — no upper bound — while
 `wifi_service.cpp:1786` rejects `ssid.size() >= 65 || password.size() >= 65`
-server-side. A too-long password gets a full round trip to the device and
-lands on a generic "Failed to start Wi-Fi connection" toast instead of an
-immediate, specific client-side message.
+server-side. A too-long password got a full round trip to the device and
+landed on a generic "Failed to start Wi-Fi connection" toast instead of an
+immediate, specific client-side message. (No separate SSID input exists —
+SSID comes from tapping a scanned network, and 802.11 SSIDs are hardware-
+capped at 32 bytes anyway, well under the 64-char limit, so only the
+password field needed this.)
 
-Fix: add `maxlength` (64) to the SSID/password inputs and check client-side
-before submitting.
+Fixed: added a `WIFI_CREDENTIAL_MAX_LENGTH = 64` constant
+(`webserver/src/portal/constants.ts`, matching the firmware's `>= 65`
+rejection), wired `maxlength` support into the `ui-input` custom element
+(`Input.ts`'s `observedAttributes`/`syncAttributes`), added
+`maxlength="64"` to the password input, and added a matching client-side
+length check in `connect()` alongside the existing empty-password check,
+using the same `setFieldError`/focus pattern. Rebuilt and copied into
+`components/wifi_service/portal/`. Verified: `tsc -b`/`vite build`/`eslint`
+all pass, firmware builds clean, and the built `maxlength="64"` attribute
+is confirmed present on the compiled portal's password input. Not
+live-tested in a browser against the device's AP.
 
 ## Page trio duplication: Notes/Todos/Follow-up
 

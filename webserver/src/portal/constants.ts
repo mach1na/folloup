@@ -3,6 +3,9 @@ export const API_HEADERS = {
   Accept: 'application/json',
 };
 
+// Matches the firmware's own limit (wifi_service.cpp rejects ssid/password >= 65 chars).
+export const WIFI_CREDENTIAL_MAX_LENGTH = 64;
+
 export const STATUS_POLL_INTERVAL_MS = 2000;
 export const STATUS_POLL_ATTEMPTS = 8;
 export const CLOCK_SYNC_POLL_INTERVAL_MS = 2000;
