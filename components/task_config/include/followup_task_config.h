@@ -15,6 +15,9 @@ inline constexpr BaseType_t kAppCore = 1;
 
 inline constexpr UBaseType_t kPriorityRecordCapture = 5;
 inline constexpr UBaseType_t kPriorityTouch = 5;
+// Captive-portal DNS responder (AP setup mode). High priority so a client device's
+// captive-portal detection probe gets answered promptly instead of timing out.
+inline constexpr UBaseType_t kPriorityCaptiveDns = 5;
 inline constexpr UBaseType_t kPriorityUiRefresh = 4;
 inline constexpr UBaseType_t kPriorityAppSleep = 4;
 inline constexpr UBaseType_t kPriorityAppShutdown = 4;

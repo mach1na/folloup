@@ -693,7 +693,8 @@ void StartCaptiveDns()
     setsockopt(s_dns_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     s_dns_stop.store(false, std::memory_order_relaxed);
-    if (xTaskCreate(CaptiveDnsTask, "captive_dns", 3072, nullptr, 5, &s_dns_task) != pdPASS) {
+    if (xTaskCreate(CaptiveDnsTask, "captive_dns", 3072, nullptr,
+                    followup_task_config::kPriorityCaptiveDns, &s_dns_task) != pdPASS) {
         ESP_LOGW(kTag, "Captive DNS task create failed");
         close(s_dns_socket);
         s_dns_socket = -1;
