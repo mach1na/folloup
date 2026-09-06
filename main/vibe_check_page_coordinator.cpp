@@ -15,8 +15,8 @@ using recording_archive_service::RecordingMetadata;
 using recording_archive_service::RecordingTag;
 
 constexpr const char* kMessageText =
-    "Some thoughts are passing vibes. Drop it, or follow up on what still hits.";
-constexpr const char* kEmptyStateMessage = "Get the ball rolling! Capture some ideas!";
+    "Some ideas are worth a follow-up, others aren't. Discard it, or turn it into a note or to-do.";
+constexpr const char* kEmptyStateMessage = "No ideas captured yet.";
 constexpr const char* kAudioOnlyMessage = "Audio only note...";
 
 // "Mon Jan 3" from the stored YYYY-MM-DD; falls back to the raw date or "Today".

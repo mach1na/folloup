@@ -128,9 +128,8 @@ std::string BuildSummaryInstructionText(SummaryKind kind, bool intermediate)
                       "text, and easy to merge later. Avoid markdown tables.\n\n"
                     : "Summarize the notes captured within the available transcripts. Create a "
                       "summary capturing the main themes, decisions, follow-ups, open questions, "
-                      "and ideas in plain text. Keep it concise, and write it in an encouraging "
-                      "and optimistic tone so it feels insightful and motivating to look back on. "
-                      "Use short paragraphs and avoid markdown tables.\n\n";
+                      "and ideas in plain text. Keep it concise and factual. Use short paragraphs "
+                      "and avoid markdown tables.\n\n";
     } else {
         text += intermediate
                     ? "Summarize the todos captured within the available transcripts. Create a "
@@ -141,9 +140,7 @@ std::string BuildSummaryInstructionText(SummaryKind kind, bool intermediate)
                     : "Summarize the todos captured within the available transcripts. Create a "
                       "summary of the priorities, completed work, remaining tasks, and any "
                       "blockers, noting completion state when it is clear from the source. Keep it "
-                      "concise and easy to skim, and write it in an encouraging and optimistic "
-                      "tone that celebrates progress and motivates the next steps. Avoid markdown "
-                      "tables.\n\n";
+                      "concise, factual, and easy to skim. Avoid markdown tables.\n\n";
     }
     return text;
 }
