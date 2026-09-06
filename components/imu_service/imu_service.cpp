@@ -17,6 +17,20 @@ constexpr int kDebugSampleCount = 3;
 constexpr TickType_t kDebugSampleDelay = pdMS_TO_TICKS(250);
 constexpr float kMilliGToG = 1.0f / 1000.0f;
 
+// Any-motion/no-motion thresholds, in the chip's ~31.25mg quantization steps (Qmi8658::MgToBytes).
+// Any-motion: 2 steps (~63mg) per axis, OR'd across axes, 1-sample window -- reacts within one
+// accelerometer period. No-motion: 1 step (~31mg) per axis, AND'd across axes (every axis must be
+// quiet). The no-motion window register's timebase turned out not to follow the accelerometer's
+// configured ODR the way its datasheet-style unit ("samples") suggests -- empirically, 42 measured
+// ~290ms on-device, implying an effective rate around 125-150Hz regardless of ODR. kNoMotionWindowSamples
+// is set to the register's max (255) to get as close as this field allows to the previous software
+// classifier's 2s still window; both this and the thresholds are first-pass values pending on-device
+// tuning against real motion/stillness.
+constexpr float kAnyMotionThresholdMg = 63.0f;
+constexpr float kNoMotionThresholdMg = 31.0f;
+constexpr uint8_t kAnyMotionWindowSamples = 1;
+constexpr uint8_t kNoMotionWindowSamples = 255;
+
 i2c_master_bus_handle_t s_sensor_bus = nullptr;
 Qmi8658* s_imu = nullptr;
 bool s_initialized = false;
@@ -42,9 +56,14 @@ esp_err_t Init()
         return err;
     }
 
-    // Polling-only: the accel/gyro are read on demand (no INT2 wired), so the
-    // driver runs without its interrupt task.
-    s_imu = new (std::nothrow) Qmi8658(s_sensor_bus, WAVESHARE_QMI8658_I2C_ADDR);
+    // INT2 wired to the QMI8658's onboard any-motion/no-motion detector (see
+    // EnableMotionDetection) -- this spins up the driver's own interrupt task. Left at the
+    // default (normal-mode) accelerometer ODR: a low-power ODR was tried here and found to
+    // silently break ReadTemperature() (all-1s register read), so that extra power trim is
+    // left for a dedicated follow-up rather than risking it in this change.
+    Qmi8658::Config config = {};
+    config.interrupt2_pin = WAVESHARE_IMU_INT_PIN;
+    s_imu = new (std::nothrow) Qmi8658(s_sensor_bus, WAVESHARE_QMI8658_I2C_ADDR, config);
     if (s_imu == nullptr) {
         return ESP_ERR_NO_MEM;
     }
@@ -65,6 +84,44 @@ esp_err_t Init()
 bool IsInitialized()
 {
     return s_initialized;
+}
+
+esp_err_t EnableMotionDetection(MotionCallback on_motion, MotionCallback on_no_motion)
+{
+    if (!s_initialized || s_imu == nullptr) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_imu->SetAnyMotionCallback(std::move(on_motion));
+    s_imu->SetNoMotionCallback(std::move(on_no_motion));
+
+    const uint8_t mode_ctrl = static_cast<uint8_t>(Qmi8658::MotionCtrl::kAnyMotionEnableX) |
+                              static_cast<uint8_t>(Qmi8658::MotionCtrl::kAnyMotionEnableY) |
+                              static_cast<uint8_t>(Qmi8658::MotionCtrl::kAnyMotionEnableZ) |
+                              static_cast<uint8_t>(Qmi8658::MotionCtrl::kNoMotionEnableX) |
+                              static_cast<uint8_t>(Qmi8658::MotionCtrl::kNoMotionEnableY) |
+                              static_cast<uint8_t>(Qmi8658::MotionCtrl::kNoMotionEnableZ);
+    esp_err_t err = s_imu->ConfigMotion(
+        mode_ctrl, kAnyMotionThresholdMg, kAnyMotionThresholdMg, kAnyMotionThresholdMg,
+        kAnyMotionWindowSamples, kNoMotionThresholdMg, kNoMotionThresholdMg, kNoMotionThresholdMg,
+        kNoMotionWindowSamples,
+        /*significant_motion_wait_window=*/1, /*significant_motion_confirm_window=*/1);
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "QMI8658 motion config failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    if (!s_imu->EnableMotionDetect(Qmi8658::IntPin::kInt2)) {
+        ESP_LOGW(kTag, "QMI8658 motion detect enable failed");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(kTag,
+             "Hardware motion detection enabled: any_motion=%.1fmg/axis (OR, %uw) "
+             "no_motion=%.1fmg/axis (AND, %uw)",
+             static_cast<double>(kAnyMotionThresholdMg), kAnyMotionWindowSamples,
+             static_cast<double>(kNoMotionThresholdMg), kNoMotionWindowSamples);
+    return ESP_OK;
 }
 
 esp_err_t ReadSample(ImuSample* out_sample)

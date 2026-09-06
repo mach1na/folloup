@@ -1756,9 +1756,9 @@ void InitDeviceSleepRuntime()
         ESP_LOGW(kTag, "Device auto-sleep init failed: %s", esp_err_to_name(err));
     }
 
-    const esp_err_t motion_err = device_sleep_runtime::StartMotionPolling();
+    const esp_err_t motion_err = device_sleep_runtime::StartMotionDetection();
     if (motion_err != ESP_OK) {
-        ESP_LOGW(kTag, "Device sleep motion polling init failed: %s",
+        ESP_LOGW(kTag, "Device sleep motion detection init failed: %s",
                  esp_err_to_name(motion_err));
     }
 }

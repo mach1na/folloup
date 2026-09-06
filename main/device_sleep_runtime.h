@@ -20,7 +20,7 @@ struct AutoSleepSettings {
 
 void SetShutdownPendingProvider(ShutdownPendingProvider provider, void* context);
 esp_err_t StartAutoSleep(const AutoSleepSettings& settings);
-esp_err_t StartMotionPolling();
+esp_err_t StartMotionDetection();
 void NotifyUserActivity();
 
 // Marks the POWER_OK press that is waking the device so it only wakes.

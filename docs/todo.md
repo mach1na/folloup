@@ -523,7 +523,7 @@ now logs consistently before `StorageService: Mount /sdcard: ESP_OK` on every
 boot, SD mount/listing and the home-screen paint both still succeed
 identically each time, no errors or warnings in any capture.
 
-## IMU auto-sleep motion detection polls instead of using the hardware interrupt path
+## IMU auto-sleep motion detection polls instead of using the hardware interrupt path — parked, hardware limitation found
 
 `main/device_sleep_runtime.cpp:608-637` (`MotionPollingTask`) wakes every
 200ms to do a full I2C read + float-math classification purely to detect
@@ -534,6 +534,84 @@ same mechanism already wired for the light-sleep wake gesture.
 `components/imu_service/imu_service.cpp` never surfaces any of it — only
 `ReadSample`. Continuous I2C polling on a battery-powered device where an
 event-driven equivalent already exists elsewhere in the same driver.
+
+The "already wired for the light-sleep wake gesture" premise was wrong:
+traced it fully and nothing was wired. `imu_service.cpp` constructed the
+QMI8658 with `interrupt2_pin` left at `GPIO_NUM_NC` (its own comment said so:
+"Polling-only... no INT2 wired"), `WAVESHARE_IMU_INT_PIN` (GPIO40) was used
+nowhere but a log line, and light sleep actually wakes on the ACTION button
+and PMIC IRQ GPIOs, nothing IMU-related. `ConfigMotion`/`EnableMotionDetect`/
+`SetAnyMotionCallback`/`SetNoMotionCallback` were real, implemented, but
+completely dormant — this was first-time GPIO-interrupt wiring, not a swap
+of an existing path, so it went through on-device iteration rather than a
+one-shot change (see below).
+
+Wired `imu_service::Init()` to construct the QMI8658 with `interrupt2_pin =
+WAVESHARE_IMU_INT_PIN` (spins up the driver's own interrupt task), added
+`imu_service::EnableMotionDetection(on_motion, on_no_motion)` which calls
+`ConfigMotion` + `EnableMotionDetect(IntPin::kInt2)` and registers the two
+callbacks directly (edge-triggered by the driver itself, matching the
+previous software classifier's "notify once per transition" semantics).
+`device_sleep_runtime::StartMotionDetection()` (renamed from
+`StartMotionPolling`) now just wires those callbacks to the existing
+`device_sleep_service::NotifyMotionDetected()`/`NotifyNoMotionStarted()`
+calls — `MotionPollingTask`, its delta-based classifier, and the now-unused
+`kPrioritySleepMotion` task-config entry are gone entirely.
+
+Two on-device surprises, both from an initial attempt to also drop the
+accelerometer to a low-power ODR (`kLowPower21Hz`) for extra battery
+savings, beyond what the todo asked for:
+- It silently broke `ReadTemperature()` (all-1s register read, logged as a
+  suspicious flat `128.00C` on every boot). Reverted to the default
+  (normal-mode) ODR, which fixed it.
+- The no-motion window register's timebase doesn't follow the requested
+  ODR the way its datasheet-style "samples" unit suggests: at the low-power
+  ODR, a window of 42 (intended as ~2s) fired in ~290ms on-device, implying
+  an effective rate around 125-150Hz regardless of the ODR config. Set
+  `kNoMotionWindowSamples` to the register's max (255), which measured
+  ~2.2-2.4s on-device across three reboots -- close to the original
+  software classifier's 2s window, given the register can't be pushed
+  further.
+- `NotifyUserActivity()`'s `ResetMotionClassifier()` call was dropped along
+  with the classifier it reset -- it was a software-only workaround for the
+  delta-classifier's wall-clock state; the hardware debounce is driven by
+  real accelerometer samples and needs no analogous reset.
+
+Thresholds (`kAnyMotionThresholdMg=63`, `kNoMotionThresholdMg=31`, both in
+the chip's ~31.25mg quantization steps) and the any-motion window (1 sample)
+are first-pass values chosen to approximate the old software thresholds,
+not derived from a verified datasheet formula. Verified on-device across 3
+reboots: clean build/boot every time, correct boot order preserved, sane
+IMU readings (temperature back to ~32C, matching the pre-existing
+baseline), and both `Motion detected (hardware)` and `No-motion detected
+(hardware)` fired correctly and fed into the existing
+`device_sleep_service` inactivity countdown.
+
+**Parked after physical testing found a real regression, not just an
+uncalibrated threshold**: Craig's on-device testing showed the hardware
+detector fires exactly once after being enabled (matching the clean
+motion-then-no-motion pair seen in bench testing above) and then goes
+permanently silent — a real pickup after the device reached display sleep
+produced no `Motion detected (hardware)` log line and did not wake the
+display, reproduced twice. `EnterDisplaySleep()`/the auto-sleep action
+handlers touch only the panel and status bar, nothing IMU-related, so
+display sleep itself isn't disabling anything; entering display sleep did
+work correctly and cleanly on its own (verified via a clean reboot: no
+spurious motion resets, transitioned right at the 180s timeout). The likely
+cause is a QMI8658 register-level detail this driver's `ConfigMotion()` +
+`EnableMotionDetect()` pairing doesn't handle -- e.g. the any-motion/
+no-motion interrupt latch needing an explicit re-arm after firing once --
+but confirming that needs datasheet-level detail not available here.
+
+This is a functional regression against the old software poller (which
+re-checked every 200ms indefinitely and never stopped), not merely an
+imperfect calibration, so it isn't safe to merge as-is. Parked on branch
+`imu-motion-hw-interrupt` (PR #21, left open but not merged) rather than
+reverted, so the investigation/wiring work isn't lost if someone picks this
+back up with datasheet access or does more register-level iteration. Main
+still runs the original `MotionPollingTask` software poller, which is
+known-working -- reflashed after parking this to restore that behavior on
+the physical device.
 
 ## E-paper SPI path uses a needlessly small bounce buffer
 

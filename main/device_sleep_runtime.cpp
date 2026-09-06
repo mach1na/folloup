@@ -1,8 +1,6 @@
 #include "device_sleep_runtime.h"
 
-#include <algorithm>
 #include <atomic>
-#include <cmath>
 #include <cstdint>
 #include <mutex>
 
@@ -31,13 +29,6 @@ namespace device_sleep_runtime {
 namespace {
 
 constexpr const char* kTag = "DeviceSleepRuntime";
-constexpr TickType_t kMotionPollInterval = pdMS_TO_TICKS(200);
-constexpr int64_t kStillWindowUs = 2 * 1000 * 1000;
-constexpr float kMotionStartSumDeltaMg = 60.0f;
-constexpr float kMotionStartMaxAxisDeltaMg = 25.0f;
-constexpr float kStillSumDeltaMg = 20.0f;
-constexpr float kStillMaxAxisDeltaMg = 8.0f;
-constexpr uint32_t kMotionTaskStackWords = 4096;
 constexpr uint32_t kAutoSleepTaskStackWords = 4096;
 constexpr size_t kAutoSleepEventQueueDepth = 8;
 constexpr TickType_t kPowerButtonReleasePollDelay = pdMS_TO_TICKS(20);
@@ -49,34 +40,15 @@ constexpr uint32_t kPowerButtonReleaseMaxSamples = 250;
 // DOUBLE_CLICK) cannot strand the suppression forever.
 constexpr int64_t kWakeGestureTimeoutUs = 2 * 1000 * 1000;
 
-enum class MotionState {
-    kUnknown,
-    kMoving,
-    kStill,
-};
-
-struct AccelSampleMg {
-    float x = 0.0f;
-    float y = 0.0f;
-    float z = 0.0f;
-    uint32_t timestamp_ms = 0;
-};
-
 TaskHandle_t s_auto_sleep_task = nullptr;
 QueueHandle_t s_auto_sleep_event_queue = nullptr;
-TaskHandle_t s_motion_task = nullptr;
-std::mutex s_motion_mutex;
+bool s_motion_detection_started = false;
 std::mutex s_shutdown_provider_mutex;
 ShutdownPendingProvider s_shutdown_pending_provider = nullptr;
 void* s_shutdown_pending_context = nullptr;
 std::atomic<bool> s_wake_gesture_active = false;
 std::atomic<bool> s_wake_gesture_long_press = false;
 std::atomic<int64_t> s_wake_gesture_deadline_us = 0;
-bool s_have_last_motion_sample = false;
-AccelSampleMg s_last_motion_sample = {};
-int64_t s_quiet_started_us = 0;
-MotionState s_motion_state = MotionState::kUnknown;
-unsigned s_consecutive_read_errors = 0;
 
 const char* ButtonEventName(button_service::ButtonEvent event)
 {
@@ -520,130 +492,16 @@ esp_err_t StartAutoSleepTask()
     return ESP_OK;
 }
 
-AccelSampleMg ToAccelSampleMg(const imu_service::ImuSample& sample)
+void OnHardwareMotionDetected()
 {
-    return {
-        .x = sample.accel_x_g * 1000.0f,
-        .y = sample.accel_y_g * 1000.0f,
-        .z = sample.accel_z_g * 1000.0f,
-        .timestamp_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000),
-    };
+    ESP_LOGI(kTag, "Motion detected (hardware)");
+    device_sleep_service::NotifyMotionDetected();
 }
 
-void ResetMotionClassifier()
+void OnHardwareNoMotionDetected()
 {
-    std::lock_guard<std::mutex> lock(s_motion_mutex);
-    s_have_last_motion_sample = false;
-    s_last_motion_sample = {};
-    s_quiet_started_us = 0;
-    s_motion_state = MotionState::kUnknown;
-}
-
-void ClassifyMotionSample(const AccelSampleMg& sample)
-{
-    if (sample.timestamp_ms == 0) {
-        return;
-    }
-
-    bool should_notify_motion = false;
-    bool should_notify_no_motion = false;
-    long long quiet_for_ms = 0;
-    float log_sum_delta = 0.0f;
-    float log_max_axis_delta = 0.0f;
-    const int64_t now_us = esp_timer_get_time();
-    {
-        std::lock_guard<std::mutex> lock(s_motion_mutex);
-        if (!s_have_last_motion_sample) {
-            s_last_motion_sample = sample;
-            s_have_last_motion_sample = true;
-            s_quiet_started_us = now_us;
-            return;
-        }
-
-        const float dx = std::fabs(sample.x - s_last_motion_sample.x);
-        const float dy = std::fabs(sample.y - s_last_motion_sample.y);
-        const float dz = std::fabs(sample.z - s_last_motion_sample.z);
-        const float sum_delta = dx + dy + dz;
-        const float max_axis_delta = std::max(dx, std::max(dy, dz));
-        const bool motion_detected =
-            sum_delta >= kMotionStartSumDeltaMg ||
-            max_axis_delta >= kMotionStartMaxAxisDeltaMg;
-        const bool still_detected =
-            sum_delta <= kStillSumDeltaMg && max_axis_delta <= kStillMaxAxisDeltaMg;
-
-        s_last_motion_sample = sample;
-        log_sum_delta = sum_delta;
-        log_max_axis_delta = max_axis_delta;
-
-        if (motion_detected) {
-            s_quiet_started_us = 0;
-            if (s_motion_state != MotionState::kMoving) {
-                s_motion_state = MotionState::kMoving;
-                should_notify_motion = true;
-            }
-        } else if (!still_detected) {
-            s_quiet_started_us = 0;
-            if (s_motion_state == MotionState::kStill) {
-                s_motion_state = MotionState::kUnknown;
-            }
-        } else {
-            if (s_quiet_started_us == 0) {
-                s_quiet_started_us = now_us;
-            }
-            if (s_motion_state != MotionState::kStill &&
-                now_us - s_quiet_started_us >= kStillWindowUs) {
-                s_motion_state = MotionState::kStill;
-                quiet_for_ms =
-                    static_cast<long long>((now_us - s_quiet_started_us) / 1000);
-                should_notify_no_motion = true;
-            }
-        }
-    }
-
-    if (should_notify_motion) {
-        ESP_LOGI(kTag, "Motion detected: sum_delta=%.1fmg max_axis=%.1fmg",
-                 static_cast<double>(log_sum_delta),
-                 static_cast<double>(log_max_axis_delta));
-        device_sleep_service::NotifyMotionDetected();
-        return;
-    }
-
-    if (should_notify_no_motion && device_sleep_service::NotifyNoMotionStarted()) {
-        ESP_LOGI(kTag, "No-motion detected: quiet_for=%lldms sum_delta=%.1fmg max_axis=%.1fmg",
-                 quiet_for_ms,
-                 static_cast<double>(log_sum_delta),
-                 static_cast<double>(log_max_axis_delta));
-    }
-}
-
-void MotionPollingTask(void*)
-{
-    TickType_t last_wake_tick = xTaskGetTickCount();
-    while (true) {
-        vTaskDelayUntil(&last_wake_tick, kMotionPollInterval);
-
-        if (!imu_service::IsInitialized()) {
-            continue;
-        }
-
-        imu_service::ImuSample sample = {};
-        const esp_err_t err = imu_service::ReadSample(&sample);
-        if (err != ESP_OK) {
-            ++s_consecutive_read_errors;
-            if (s_consecutive_read_errors == 1 || s_consecutive_read_errors % 50 == 0) {
-                ESP_LOGW(kTag, "IMU motion sample failed: %s consecutive_errors=%u",
-                         esp_err_to_name(err),
-                         s_consecutive_read_errors);
-            }
-            continue;
-        }
-        if (s_consecutive_read_errors != 0) {
-            ESP_LOGI(kTag, "IMU motion sampling recovered after %u errors",
-                     s_consecutive_read_errors);
-            s_consecutive_read_errors = 0;
-        }
-
-        ClassifyMotionSample(ToAccelSampleMg(sample));
+    if (device_sleep_service::NotifyNoMotionStarted()) {
+        ESP_LOGI(kTag, "No-motion detected (hardware)");
     }
 }
 
@@ -687,41 +545,30 @@ esp_err_t StartAutoSleep(const AutoSleepSettings& settings)
     return ESP_OK;
 }
 
-esp_err_t StartMotionPolling()
+esp_err_t StartMotionDetection()
 {
-    if (s_motion_task != nullptr) {
+    if (s_motion_detection_started) {
         return ESP_OK;
     }
-
-    const BaseType_t created = xTaskCreatePinnedToCore(
-        MotionPollingTask,
-        "sleep_motion",
-        kMotionTaskStackWords,
-        nullptr,
-        followup_task_config::kPrioritySleepMotion,
-        &s_motion_task,
-        followup_task_config::kAppCore);
-    if (created != pdPASS) {
-        s_motion_task = nullptr;
-        ESP_LOGW(kTag, "Failed to create motion polling task");
-        return ESP_ERR_NO_MEM;
+    if (!imu_service::IsInitialized()) {
+        ESP_LOGW(kTag, "Motion detection start skipped: IMU not initialized");
+        return ESP_ERR_INVALID_STATE;
     }
 
-    ESP_LOGI(kTag,
-             "Motion polling started: interval=%ums motion_sum=%.1fmg motion_axis=%.1fmg "
-             "still_sum=%.1fmg still_axis=%.1fmg still_window=%lldms",
-             static_cast<unsigned>(pdTICKS_TO_MS(kMotionPollInterval)),
-             static_cast<double>(kMotionStartSumDeltaMg),
-             static_cast<double>(kMotionStartMaxAxisDeltaMg),
-             static_cast<double>(kStillSumDeltaMg),
-             static_cast<double>(kStillMaxAxisDeltaMg),
-             static_cast<long long>(kStillWindowUs / 1000));
+    const esp_err_t err =
+        imu_service::EnableMotionDetection(OnHardwareMotionDetected, OnHardwareNoMotionDetected);
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "Failed to enable hardware motion detection: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    s_motion_detection_started = true;
+    ESP_LOGI(kTag, "Hardware motion detection started (QMI8658 INT2)");
     return ESP_OK;
 }
 
 void NotifyUserActivity()
 {
-    ResetMotionClassifier();
     device_sleep_service::NotifyUserActivity(device_sleep_service::ActivitySource::kInteraction);
 }
 
