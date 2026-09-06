@@ -73,13 +73,19 @@ patterns) before implementing; footer rendering lives in `epaper_ui`.
 
 Own branch/PR.
 
-## Tone down the summarize/vibe-check prompts
+## ~~Tone down the summarize/vibe-check prompts~~ — resolved
 
-The Gemini prompts used for summarizing (`summary_service`, see
-`docs/gemini-service.md`) read too "chummy" — investigate the current prompt
-text and adjust tone to be more neutral/professional.
+Found two spots with a "chummy" tone:
 
-Own branch/PR.
+- `summary_service::BuildSummaryInstructionText` (`components/summary_service/summary_service.cpp`):
+  the final (non-intermediate) notes/todos prompts told Gemini to write in an
+  "encouraging and optimistic tone" that's "motivating to look back on" /
+  "celebrates progress" — dropped in favor of "concise and factual."
+  Intermediate/rollup prompts were already factual and untouched.
+- `vibe_check_page_coordinator.cpp`: the Vibe Check page's static UI copy
+  (`kMessageText`, `kEmptyStateMessage`) had the same overly-cute tone
+  ("Some thoughts are passing vibes... what still hits", "Get the ball
+  rolling!") — reworded to plain, neutral copy.
 
 ## Offline transcription queue doesn't actually work
 
