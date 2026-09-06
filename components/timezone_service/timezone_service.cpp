@@ -131,7 +131,7 @@ void* s_event_context = nullptr;
 QueueHandle_t s_sync_queue = nullptr;
 TaskHandle_t s_sync_task = nullptr;
 std::atomic<bool> s_sync_in_progress = false;
-volatile bool s_sntp_sync_seen = false;
+std::atomic<bool> s_sntp_sync_seen{false};
 bool s_initialized = false;
 bool s_network_connected = false;
 bool s_enabled = false;
@@ -503,7 +503,7 @@ bool ShouldSyncOnNetworkConnectedLocked()
 void OnSntpTimeSync(timeval* tv)
 {
     (void)tv;
-    s_sntp_sync_seen = true;
+    s_sntp_sync_seen.store(true, std::memory_order_relaxed);
 }
 
 bool QueueSync(bool force)
@@ -1029,7 +1029,7 @@ bool SyncNow(const char* ntp_server, uint32_t timeout_ms)
              server,
              timezone_name.empty() ? "<env>" : timezone_name.c_str());
 
-    s_sntp_sync_seen = false;
+    s_sntp_sync_seen.store(false, std::memory_order_relaxed);
     esp_sntp_set_time_sync_notification_cb(OnSntpTimeSync);
     esp_sntp_set_sync_status(SNTP_SYNC_STATUS_RESET);
     if (esp_sntp_enabled()) {
@@ -1049,7 +1049,8 @@ bool SyncNow(const char* ntp_server, uint32_t timeout_ms)
         vTaskDelay(pdMS_TO_TICKS(100));
         now = time(nullptr);
         if (now >= kMinValidEpoch &&
-            (s_sntp_sync_seen || esp_sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED)) {
+            (s_sntp_sync_seen.load(std::memory_order_relaxed) ||
+             esp_sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED)) {
             break;
         }
     }

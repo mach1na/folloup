@@ -257,9 +257,9 @@ Fix: guard the callback member with the same mutex the task already uses
 elsewhere; consider buffering/replaying (or at minimum logging) events that
 arrive before a callback is attached.
 
-## `volatile bool` used for cross-task signaling in timezone_service.cpp
+## ~~`volatile bool` used for cross-task signaling in timezone_service.cpp~~ — resolved
 
-`s_sntp_sync_seen` (`timezone_service.cpp:134`) is a plain `volatile bool`,
+`s_sntp_sync_seen` (`timezone_service.cpp:134`) was a plain `volatile bool`,
 set from the SNTP/LWIP callback task (`OnSntpTimeSync`, line 506) and read
 from whatever task calls `SyncNow` (~line 1052). `volatile` gives no
 cross-thread visibility/ordering guarantee in the C++ memory model, unlike
@@ -268,7 +268,9 @@ the same purpose (e.g. `recording_session_service.cpp:70`'s
 `s_network_connected`). Could cause a spurious "time sync failed" report
 immediately after a real sync succeeds.
 
-Fix: change to `std::atomic<bool>`.
+Fixed: changed to `std::atomic<bool>` (relaxed ordering, matching the
+existing pattern elsewhere). Verified on-device: NTP sync still succeeds
+normally.
 
 ## Latent abort-on-error hazard in i2c_device.cc (currently dead code)
 
