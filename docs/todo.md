@@ -1,42 +1,34 @@
 # TODO
 
-## Defer the ghosting flush to idle instead of firing mid-interaction
+## ~~Defer the ghosting flush to idle instead of firing mid-interaction~~ — resolved
 
-The SSD1677 driver forces a full-waveform refresh every 8 consecutive partial
-refreshes (`kMaxPartialRefreshesBeforeFlush` in
-`components/epaper_panel/ssd1677_driver.cpp`) to fight the contrast fade that
-whole-screen partial refresh leaves on unchanged pixels. Because every
-roving-focus move (menu/timeline `UP`/`DOWN`) does a partial refresh, arrowing
-through more than 8 items triggers a full, flashy refresh mid-navigation.
-Separately, `DetermineOverlayRefreshPolicy` in `main/overlay_runtime.cpp`
-always forces a full refresh when a select modal/keyboard/sticky note is
-dismissed, so picking a menu option (e.g. the Idea/To-do/Note tag picker) also
-triggers one on dismiss by design.
+The SSD1677 driver used to force a full-waveform refresh inline the moment
+the 8th consecutive partial refresh was requested (`kMaxPartialRefreshesBeforeFlush`
+in `components/epaper_panel/ssd1677_driver.cpp`), so arrowing through more
+than 8 items in a menu/timeline triggered a full, flashy refresh
+mid-navigation.
 
-Best practice for a panel like this (no windowed partial, must periodically
-re-drive to bound ghosting): decouple "ghosting budget exhausted" from "flush
-now." Set a `flush_needed` flag when the partial counter hits its threshold,
-and only execute the full refresh at the next natural idle point (a pause in
-input, or a screen/mode transition) instead of on whatever operation happens
-to be the 8th partial. Keep a secondary hard ceiling (e.g. 2-3x the normal
-budget) so continuous uninterrupted input can't defer the flush indefinitely.
+Split into a soft budget and a hard ceiling:
+- `EpaperPanel::NeedsGhostingFlush()` turns true once the soft budget (still
+  8) is reached, but no longer forces anything by itself.
+- `display_service::DisplayTask` polls its command queue with a short timeout
+  (`kGhostingFlushIdleMs`, 500ms) once a flush is pending; a gap that long
+  with no new command means input has paused, and that's when the deferred
+  full refresh (`RefreshCurrentScreenLocked(RefreshMode::kFull)`) actually
+  runs — invisible to active navigation.
+- `kHardPartialRefreshCeiling` (2.5x the soft budget, 20) still forces the
+  flush inline in `RefreshPartialFullScreen` if input never pauses long
+  enough, so ghosting can't grow unbounded under continuous input.
 
-Tradeoff: more state to track (debounce/idle timer alongside the existing
-counter), and the ghosting bound becomes "N partials past the next idle gap"
-rather than a hard cap unless that secondary ceiling is added.
+Verified on-device: idle-deferral fired during a real pause after 8 partials
+(full-refresh signature: `reset≈50ms`/`init≈9.9ms` vs `0`/`0` for a partial),
+and the hard ceiling fired inline during a sustained run where presses never
+left a 500ms gap.
 
-Relevant files:
-- `components/epaper_panel/ssd1677_driver.cpp` (`kMaxPartialRefreshesBeforeFlush`,
-  `RefreshPartialFullScreen`)
-- `main/overlay_runtime.cpp` (`DetermineOverlayRefreshPolicy`)
-- `main/ui_refresh_runtime.cpp` (the keyed latest-wins refresh worker this
-  would need to plug into)
-
-Also worth a small drive-by fix while in this area: the comment at the top of
-`ssd1677_driver.cpp` (`kMaxPartialRefreshesBeforeFlush` block) still says "the
-flush is now on the fast waveform, so a tighter budget costs little" — stale
-since commit `ae15b27` reverted the flush back to the slow, full mode-1
-waveform because the fast OTP waveform settled at visibly lower contrast.
+Also fixed as a drive-by: the stale comment on `kMaxPartialRefreshesBeforeFlush`
+claiming "the flush is now on the fast waveform" (it isn't — reverted in
+`ae15b27` back to the slow mode-1 waveform since the fast OTP waveform
+settled at visibly lower contrast).
 
 ## ~~Display sleep never actually blanks the panel~~ — resolved, docs corrected
 
