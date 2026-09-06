@@ -13,7 +13,12 @@
 namespace {
 
 constexpr const char* kTag = "EpaperPanel";
-constexpr int kSpiDmaChunkSizeBytes = 1024;
+// The bus itself is configured for up to kSpiBusMaxTransferSizeBytes (below), but this bounce
+// buffer is internal-RAM/DMA-capable, and internal RAM on this board is scarce enough that it
+// previously caused a boot crash-loop (framebuffers moved to PSRAM to fix it -- see
+// EpaperPanel::Initialize()). 4KB cuts a full ~48000-byte plane write from ~47 blocking SPI
+// round-trips down to ~12, without meaningfully reopening that internal-RAM pressure.
+constexpr int kSpiDmaChunkSizeBytes = 4096;
 constexpr int kSpiBusMaxTransferSizeBytes = 48 * 1024;
 constexpr int kBusyPollDelayMs = 5;
 constexpr int kSpiClockHz = 20 * 1000 * 1000;
@@ -96,6 +101,9 @@ esp_err_t EpaperPanel::Initialize()
             return ESP_ERR_NO_MEM;
         }
         spi_tx_buffer_len_ = kSpiDmaChunkSizeBytes;
+        ESP_LOGI(kTag, "SPI DMA staging buffer: %d bytes, internal RAM free: %u bytes",
+                 kSpiDmaChunkSizeBytes,
+                 static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
     }
 
     Clear(true);

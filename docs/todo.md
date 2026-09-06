@@ -535,7 +535,7 @@ same mechanism already wired for the light-sleep wake gesture.
 `ReadSample`. Continuous I2C polling on a battery-powered device where an
 event-driven equivalent already exists elsewhere in the same driver.
 
-## E-paper SPI path uses a needlessly small bounce buffer
+## ~~E-paper SPI path uses a needlessly small bounce buffer~~ — resolved
 
 `components/epaper_panel/epaper_panel.cpp:16` chunks every SPI write into
 1KB pieces (`kSpiDmaChunkSizeBytes`) despite the bus being configured for
@@ -545,6 +545,33 @@ full, producing ~94 sequential blocking SPI round-trips and ~96KB of extra
 bounce-buffer copying per partial refresh. A larger DMA-capable staging
 buffer (or pipelined transfers) would cut both without touching the
 necessary full-plane rewrite itself.
+
+Investigated going all the way to the full 48KB the bus supports, but this
+board has a documented history of internal-DRAM crash-loops (commit
+`8848341`): internal RAM was so scarce that ESP-IDF's own lazy TLS
+hardware-crypto lock allocation failed outright, breaking Gemini
+authentication, until the fix moved ~96KB of framebuffers off internal RAM
+onto PSRAM specifically to reclaim headroom there. This bounce buffer is
+one of the few things on this board that still has to be internal-RAM +
+DMA-capable (`MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA`), so a 48KB bump would
+have clawed back most of what that fix deliberately freed. Went with a
+conservative 4KB instead (`kSpiDmaChunkSizeBytes`, 1024 -> 4096): cuts a
+full plane write from ~47 blocking round-trips down to ~12.
+
+Added a log line reporting free internal RAM right after this allocation,
+for future visibility into this exact tradeoff. Verified on-device across 3
+reboots: internal RAM free measured a consistent 195463 bytes after the
+new 4KB buffer (nowhere near the scarcity that caused the earlier
+crash-loop), Wi-Fi connected and Gemini authenticated successfully every
+time (the two things that broke during that incident), and
+`DisplayService: refresh metrics`'s `spi=` figure dropped from ~40.5-40.6ms
+to ~39.3-39.5ms per refresh -- a modest, real ~1.2ms win. The SPI bus
+itself turned out to be bandwidth-bound at 20MHz (48000 bytes x 2 planes
+≈ 38.4ms theoretical minimum, matching the ~39-40ms baseline almost
+exactly), so the chunking overhead this item complained about was only
+ever that ~1-1.5ms of extra per-transaction software cost, not a
+proportionally large fraction of refresh time. Craig confirmed the screen
+still looks correct (no banding/corruption) after the change.
 
 ## Glyph rendering goes through `std::function` indirection on the hottest path
 
