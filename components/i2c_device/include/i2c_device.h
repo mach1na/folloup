@@ -18,9 +18,6 @@ protected:
     esp_err_t ReadRegs(uint8_t reg, uint8_t* buffer, size_t length, int timeout_ms = 100);
     esp_err_t WriteReg(uint8_t reg, uint8_t value, int timeout_ms = 100);
     esp_err_t ReadReg(uint8_t reg, uint8_t* value, int timeout_ms = 100);
-
-    void WriteRegOrDie(uint8_t reg, uint8_t value);
-    uint8_t ReadRegOrDie(uint8_t reg);
 };
 
 #endif // I2C_DEVICE_H
