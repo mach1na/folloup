@@ -573,7 +573,7 @@ ever that ~1-1.5ms of extra per-transaction software cost, not a
 proportionally large fraction of refresh time. Craig confirmed the screen
 still looks correct (no banding/corruption) after the change.
 
-## Glyph rendering goes through `std::function` indirection on the hottest path
+## ~~Glyph rendering goes through `std::function` indirection on the hottest path~~ — resolved
 
 `components/epaper_ui/font_renderer.cpp:110-165` (`DrawText`) calls
 `draw_pixel(...)` through a type-erased `std::function<void(int,int,uint8_t)>`
@@ -581,6 +581,29 @@ still looks correct (no banding/corruption) after the change.
 every glyph of every string on every screen redraw. Making `DrawPixelFn` a
 template parameter (or a small concrete struct) would let the compiler
 inline the actual pixel write.
+
+Made `DrawText` a function template on the callable type instead of taking
+`std::function`. This required moving its definition (and the private
+`FontSelection`/`ScaleMetric`/`FontForRole` helpers it depends on) from
+`font_renderer.cpp` into the header as `inline` functions under a new
+`font_renderer_detail` namespace, since a template's definition has to be
+visible at every call site's translation unit. `bitmap_font.h`/
+`generated_epaper_fonts.h` (now included by the header) are both just
+extern struct declarations, not the actual bitmap data, so this doesn't
+duplicate font data across translation units or meaningfully affect
+compile times. All 8 existing call sites (`render_utils.cpp`,
+`toast.cpp`, `lock_screen.cpp` x5, `status_bar.cpp`) already passed
+inline lambdas directly rather than a stored `DrawPixelFn`, so template
+argument deduction just works with no call-site changes needed. The
+now-unused `DrawPixelFn` type alias was removed (had no other references
+anywhere).
+
+Verified: clean build, zero warnings, binary size grew by only 336 bytes
+across the 8 template instantiations (no runaway template bloat — the
+lambdas are all structurally similar). Flashed to hardware: clean boot,
+home screen paints correctly, Craig confirmed all on-screen text (status
+bar, footer labels, welcome message) still renders correctly with no
+garbling or spacing regressions.
 
 ## ~~Vestigial touch contract still alive in footer/carousel hit-testing~~ — resolved
 
