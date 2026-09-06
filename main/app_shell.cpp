@@ -1779,10 +1779,12 @@ void Run()
     // before feedback/storage/display/Wi-Fi/audio have a chance to fragment the heap.
     InitGeminiService();
     InitFeedbackService();
-    // On this board the SD card needs to enter and stay in SPI mode before
-    // the shared-bus display path is brought up.
-    InitStorageService();
+    // The e-paper panel owns a dedicated SPI3 bus (no bus arbitration with the
+    // SD card, which is on SDMMC) and its Init() does the synchronous startup
+    // splash refresh -- bring it up before the SD mount so that refresh isn't
+    // delayed by SD detect/mount latency.
     InitDisplayService();
+    InitStorageService();
     InitUiRefreshRuntime();
     InitLockScreenRuntime();
     InitOverlayRuntime();

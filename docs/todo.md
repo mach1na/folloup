@@ -480,7 +480,7 @@ Fix: derive the icon/checked state in `BuildState()` at render time instead
 of storing it. Natural to fold into the page-trio refactor above rather
 than doing separately.
 
-## SD-card mount blocks the mandatory first paint
+## ~~SD-card mount blocks the mandatory first paint~~ — resolved
 
 `components/storage_service/storage_service.cpp:578-611` (`Init()`) mounts
 the SDMMC card and FAT filesystem synchronously, even though the same
@@ -491,6 +491,27 @@ panel's first pixel. `recording_archive_service::Init()` already
 demonstrates the right pattern (cached NVS snapshot + deferred
 `RefreshAsync()` scan) that could apply to the mount itself now that a
 worker task exists.
+
+Investigated making `storage_service::Init()` itself async on that pattern,
+but found a much lower-risk fix: `Run()`'s comment claiming "the SD card
+needs to enter and stay in SPI mode before the shared-bus display path is
+brought up" turned out to be stale, copy-pasted from the Sticky-board port
+(`git show 8d39d55`, which introduced a `shared_bus_service` component to
+arbitrate a *shared* SPI2 bus between SD and display on that board). On
+Waveshare there is no shared bus — the SD card is on SDMMC (4-bit,
+`components/sd_card/sd_card.cpp` uses `SDMMC_HOST_DEFAULT()`, confirmed
+against `docs/waveshare-epaper-hardware-spec.md:231`) and the panel owns
+SPI3 outright; `shared_bus_service` doesn't exist in this codebase at all
+anymore. `display_service::Init()` already does its full startup-splash
+refresh synchronously before returning, so simply reordering `Run()` to call
+`InitDisplayService()` before `InitStorageService()` moves the first pixel
+ahead of the SD mount without touching `storage_service`'s internals or its
+synchronous-mount contract. Fixed by swapping the two calls and replacing the
+stale comment. Verified on-device across 5 full reboots (1 fresh flash + 4
+EN-pin resets): `DisplayService: Display initialized with startup splash`
+now logs consistently before `StorageService: Mount /sdcard: ESP_OK` on every
+boot, SD mount/listing and the home-screen paint both still succeed
+identically each time, no errors or warnings in any capture.
 
 ## IMU auto-sleep motion detection polls instead of using the hardware interrupt path
 
