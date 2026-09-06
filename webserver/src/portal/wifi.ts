@@ -1,3 +1,4 @@
+import { WIFI_CREDENTIAL_MAX_LENGTH } from './constants';
 import type {
   Network,
   NetworkListField,
@@ -279,6 +280,14 @@ export function createWiFiController(deps: WiFiControllerDeps) {
 
     if (requiresPassword() && deps.passwordInput.value.trim().length === 0) {
       deps.setFieldError(deps.passwordInput, 'Please enter a WiFi password.');
+      deps.passwordInput.focus({ preventScroll: true });
+      return;
+    }
+    if (deps.passwordInput.value.length > WIFI_CREDENTIAL_MAX_LENGTH) {
+      deps.setFieldError(
+        deps.passwordInput,
+        `WiFi password must be ${WIFI_CREDENTIAL_MAX_LENGTH} characters or fewer.`
+      );
       deps.passwordInput.focus({ preventScroll: true });
       return;
     }

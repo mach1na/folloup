@@ -52,6 +52,7 @@ export class Input extends HTMLElement {
       "inputmode",
       "label",
       "max",
+      "maxlength",
       "min",
       "name",
       "placeholder",
@@ -203,6 +204,7 @@ export class Input extends HTMLElement {
     this.syncStringAttribute("autocomplete");
     this.syncStringAttribute("inputmode");
     this.syncStringAttribute("max");
+    this.syncStringAttribute("maxlength");
     this.syncStringAttribute("min");
     this.syncStringAttribute("name");
     this.syncStringAttribute("placeholder");
