@@ -17,6 +17,7 @@ public:
         epaper_ui::ListItemState item = {};
         std::string recording_id = {};
         std::string recording_path = {};
+        bool has_audio_file = false;
         bool follow_up = false;
         bool follow_up_completed = false;
     };

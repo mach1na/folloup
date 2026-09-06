@@ -288,7 +288,7 @@ bool ShowItemActionsModal()
         modal.title_text = "Note";
         // Only offered when the row actually has audio on the card; a transcript-only
         // entry would otherwise show an action that silently does nothing.
-        if (!entry->recording_path.empty()) {
+        if (entry->has_audio_file) {
             modal.items.push_back({"Play recording"});
             s_item_actions.push_back(ItemAction::kPlayRecording);
         }

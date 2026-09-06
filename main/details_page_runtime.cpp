@@ -57,7 +57,7 @@ void PlaybackWorker(void* arg)
             recording_archive_service::ListRecordings();
         for (const recording_archive_service::RecordingEntry& entry : recordings) {
             if (entry.recording_id == *recording_id) {
-                if (!entry.recording_path.empty()) {
+                if (entry.has_audio_file) {
                     (void)playback_service::PlayFile(entry.recording_path.c_str());
                 }
                 break;

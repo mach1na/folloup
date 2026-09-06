@@ -74,6 +74,7 @@ void TodosPageCoordinator::BuildGroups(const std::vector<RecordingEntry>& record
         TimelineEntry timeline_entry = {};
         timeline_entry.recording_id = entry.recording_id;
         timeline_entry.recording_path = entry.recording_path;
+        timeline_entry.has_audio_file = entry.has_audio_file;
         timeline_entry.follow_up = entry.metadata.follow_up;
         timeline_entry.follow_up_completed = entry.metadata.follow_up_completed;
         timeline_entry.completed = entry.metadata.completed;
