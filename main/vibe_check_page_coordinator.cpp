@@ -1,105 +1,21 @@
 #include "vibe_check_page_coordinator.h"
 
 #include <algorithm>
-#include <cstdio>
-#include <ctime>
 
 #include "esp_random.h"
 #include "generated_epaper_icons.h"
+#include "timeline_format.h"
 
 namespace {
 
 using page_navigation::NavigationItemRole;
 using recording_archive_service::RecordingEntry;
-using recording_archive_service::RecordingMetadata;
 using recording_archive_service::RecordingTag;
 
 constexpr const char* kMessageText =
     "Some ideas are worth a follow-up, others aren't. Discard it, or turn it into a note or to-do.";
 constexpr const char* kEmptyStateMessage = "No ideas captured yet.";
 constexpr const char* kAudioOnlyMessage = "Audio only note...";
-
-// "Mon Jan 3" from the stored YYYY-MM-DD; falls back to the raw date or "Today".
-std::string FormatArchiveDateLabel(const RecordingMetadata& metadata)
-{
-    if (metadata.created_local_date.empty()) {
-        return "Today";
-    }
-    int year = 0;
-    int month = 0;
-    int day = 0;
-    if (std::sscanf(metadata.created_local_date.c_str(), "%d-%d-%d", &year, &month, &day) == 3) {
-        std::tm local_tm = {};
-        local_tm.tm_year = year - 1900;
-        local_tm.tm_mon = month - 1;
-        local_tm.tm_mday = day;
-        if (std::mktime(&local_tm) != static_cast<time_t>(-1)) {
-            char weekday_buffer[8] = {};
-            char month_buffer[8] = {};
-            if (std::strftime(weekday_buffer, sizeof(weekday_buffer), "%a", &local_tm) > 0 &&
-                std::strftime(month_buffer, sizeof(month_buffer), "%b", &local_tm) > 0) {
-                char label_buffer[24] = {};
-                std::snprintf(label_buffer, sizeof(label_buffer), "%s %s %d", weekday_buffer,
-                              month_buffer, day);
-                return label_buffer;
-            }
-        }
-    }
-    return metadata.created_local_date;
-}
-
-std::string FormatArchiveTimeLabel(const RecordingEntry& entry)
-{
-    if (entry.metadata.time_valid && entry.metadata.created_unix_seconds > 0) {
-        time_t epoch_seconds = static_cast<time_t>(entry.metadata.created_unix_seconds);
-        std::tm local_tm = {};
-        localtime_r(&epoch_seconds, &local_tm);
-        char buffer[16] = {};
-        if (std::strftime(buffer, sizeof(buffer), "%I:%M %p", &local_tm) > 0) {
-            if (buffer[0] == '0') {
-                return std::string(buffer + 1);
-            }
-            return buffer;
-        }
-    }
-    return "--:--";
-}
-
-std::string FormatArchiveDurationLabel(uint32_t duration_ms)
-{
-    const uint32_t total_seconds = duration_ms / 1000U;
-    char buffer[16] = {};
-    if (total_seconds <= 60U) {
-        std::snprintf(buffer, sizeof(buffer), "%02us", static_cast<unsigned>(total_seconds));
-        return buffer;
-    }
-    const uint32_t minutes = total_seconds / 60U;
-    std::snprintf(buffer, sizeof(buffer), "%um", static_cast<unsigned>(minutes));
-    return buffer;
-}
-
-std::string TagTextForRecording(const RecordingMetadata& metadata)
-{
-    switch (metadata.tag) {
-        case RecordingTag::kIdea:
-            return "Idea";
-        case RecordingTag::kTask:
-            return "Task";
-        case RecordingTag::kNote:
-        default:
-            return "Note";
-    }
-}
-
-std::string TrimTranscriptText(const std::string& text)
-{
-    const auto begin = text.find_first_not_of(" \t\r\n");
-    if (begin == std::string::npos) {
-        return {};
-    }
-    const auto end = text.find_last_not_of(" \t\r\n");
-    return text.substr(begin, end - begin + 1);
-}
 
 }  // namespace
 
@@ -352,15 +268,17 @@ void VibeCheckPageCoordinator::RebuildCardState()
         return;
     }
 
-    card_state_.tag_text = FormatArchiveDateLabel(entry->metadata);
+    card_state_.tag_text = timeline_format::FormatDateLabel(entry->metadata.created_local_date);
     // Audio-only ideas (no transcript yet) offer the right-edge Transcribe (Star) action.
     card_state_.show_transcribe_action = !entry->metadata.has_transcript;
     card_state_.header.icon_asset =
         entry->metadata.has_transcript ? &epaper_icons::kTranscribe : &epaper_icons::kAudio;
-    card_state_.header.time_text = FormatArchiveTimeLabel(*entry);
-    card_state_.header.minute_seconds_text = FormatArchiveDurationLabel(entry->metadata.duration_ms);
-    card_state_.header.tag_text = TagTextForRecording(entry->metadata);
-    const std::string transcript = TrimTranscriptText(entry->transcript_text);
+    card_state_.header.time_text = timeline_format::FormatTimeLabel(
+        entry->metadata.time_valid, entry->metadata.created_unix_seconds);
+    card_state_.header.minute_seconds_text =
+        timeline_format::FormatDurationLabel(entry->metadata.duration_ms);
+    card_state_.header.tag_text = timeline_format::TagText(entry->metadata.tag);
+    const std::string transcript = timeline_format::TrimTranscript(entry->transcript_text);
     card_state_.body_text =
         entry->metadata.has_transcript && !transcript.empty() ? transcript : kAudioOnlyMessage;
 

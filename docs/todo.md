@@ -412,20 +412,32 @@ that each page configures, rather than three parallel implementations.
 Biggest, riskiest item on this list — worth planning carefully rather than
 doing opportunistically.
 
-## `timeline_format` helpers reimplemented independently twice
+## ~~`timeline_format` helpers reimplemented independently twice~~ — resolved
 
 `main/details_page_coordinator.cpp:19-88` and
-`main/vibe_check_page_coordinator.cpp:22-89` each locally redefine
+`main/vibe_check_page_coordinator.cpp:22-89` each locally redefined
 byte-for-byte-or-close copies of `timeline_format`'s `FormatDateLabel`/
 `FormatTimeLabel`/`FormatDurationLabel`/`TrimTranscript`/`TagText`
 (`main/timeline_format.h/.cpp`, already used correctly by
-notes/todos/follow_up). They've already drifted: details' date formatter
-is missing the "Today" comparison the shared one has, and vibe_check's
-duration formatter uses a different `<=60` vs `<60` second boundary with
+notes/todos/follow_up). They'd already drifted: details' date formatter
+was missing the "Today" comparison the shared one has, and vibe_check's
+duration formatter used a different `<=60` vs `<60` second boundary with
 different padding.
 
-Fix: replace both local copies with calls to `timeline_format`'s existing
-helpers.
+Fixed: both local copies removed, replaced with calls to `timeline_format`'s
+existing helpers. Two deliberate, intended behavior changes fall out of
+this (the drift the finding itself flagged, not preserved):
+- Details page: a recording made today now shows "Today" as its title
+  instead of the literal weekday/date, matching notes/todos/follow-up. Its
+  own "no date at all -> 'Details'" fallback (different from
+  `timeline_format`'s own "Today" fallback for that case) is preserved via
+  an explicit empty check before calling the shared helper.
+- Vibe Check page: durations now show unpadded seconds ("5s" not "05s")
+  and use the same `<60` minute boundary as everywhere else, instead of
+  its own `<=60` with zero-padding.
+
+Verified on-device: confirmed both changes render correctly (Details page
+"Today" label, Vibe Check unpadded duration).
 
 ## Small duplicated helpers (3 more instances)
 
