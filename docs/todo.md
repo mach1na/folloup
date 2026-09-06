@@ -231,19 +231,25 @@ full-screen paint. Two places don't:
 
 Fix: gate both the same way every other handler already does.
 
-## Auto-sleep's playback blocker isn't re-checked right before sleeping
+## ~~Auto-sleep's playback blocker isn't re-checked right before sleeping~~ — resolved
 
 `GetAutoSleepBlocker` (`main/device_sleep_runtime.cpp:132-172`) correctly
 checks `playback_service::IsPlaying()`, but once light sleep is dispatched,
 `EnterLightSleep()`'s `WaitForPowerButtonReleased()`
-(`device_sleep_runtime.cpp:243-270`) can poll for up to 5s (250 samples x
-20ms) before `esp_light_sleep_start()` actually runs, without re-checking
-`IsPlaying()`. Starting playback in that window means the device can enter
-light sleep (killing Wi-Fi, suspending buttons) mid-playback.
+(`device_sleep_runtime.cpp:243-270`) could poll for up to 5s (250 samples x
+20ms) before `esp_light_sleep_start()` actually ran, without re-checking
+`IsPlaying()`. Starting playback in that window meant the device could
+enter light sleep (killing Wi-Fi, suspending buttons) mid-playback.
 
-Fix: re-check the blocker (or re-run `GetAutoSleepBlocker`) immediately
-before the actual `esp_light_sleep_start()` call, aborting entry if it's
-now blocked.
+Fixed: re-check `GetAutoSleepBlocker(nullptr)` immediately before the
+actual `esp_light_sleep_start()` call (after the Wi-Fi stop and display
+transition, right before the point of no return), aborting entry via the
+existing `AbortLightSleepEntry` if anything now blocks it — that function
+already unwinds the Wi-Fi stop and display transition via
+`RestoreAfterLightSleep()`, so it's safe to call this late in the
+sequence. Verified on-device: normal light-sleep entry still proceeds
+without a spurious abort. The exact race (playback starting in the ~ms
+window right before the check) wasn't specifically forced/reproduced.
 
 ## Unsynchronized interrupt callbacks in axp2101.cc and qmi8658.cc
 
