@@ -14,8 +14,6 @@ namespace {
 
 constexpr int kColumnGap = design::spacing::k16;
 constexpr int kButtonGap = design::spacing::k8;
-constexpr int kTouchHitSlopX = design::spacing::k4;
-constexpr int kTouchHitSlopY = design::spacing::k12;
 
 struct VisibleFooterButton {
     GlobalFooterItemId item = GlobalFooterItemId::kNone;
@@ -189,20 +187,6 @@ UiRect FooterButtonBounds(int portrait_width,
     return {};
 }
 
-UiRect ExpandTouchBounds(const UiRect& bounds)
-{
-    if (bounds.IsEmpty()) {
-        return bounds;
-    }
-
-    return {
-        bounds.x - kTouchHitSlopX,
-        bounds.y - kTouchHitSlopY,
-        bounds.width + (2 * kTouchHitSlopX),
-        bounds.height + (2 * kTouchHitSlopY),
-    };
-}
-
 }  // namespace
 
 UiRect GlobalFooterBounds(int portrait_width, int portrait_height, const GlobalFooterState& state)
@@ -236,44 +220,6 @@ UiRect GlobalFooterItemVisualBounds(int portrait_width,
                                     GlobalFooterItemId item)
 {
     return GlobalFooterItemBounds(portrait_width, portrait_height, state, item);
-}
-
-bool HitTestGlobalFooterItem(int portrait_width,
-                             int portrait_height,
-                             const GlobalFooterState& state,
-                             int x,
-                             int y,
-                             GlobalFooterItemId* item)
-{
-    if (item != nullptr) {
-        *item = GlobalFooterItemId::kNone;
-    }
-    if (!state.visible) {
-        return false;
-    }
-
-    constexpr GlobalFooterItemId kItems[] = {
-        GlobalFooterItemId::kSettings,
-        GlobalFooterItemId::kWifi,
-        GlobalFooterItemId::kTime,
-        GlobalFooterItemId::kFolder,
-        GlobalFooterItemId::kSticky,
-        GlobalFooterItemId::kHome,
-        GlobalFooterItemId::kMic,
-    };
-
-    for (GlobalFooterItemId candidate : kItems) {
-        const UiRect bounds =
-            ExpandTouchBounds(GlobalFooterItemBounds(portrait_width, portrait_height, state, candidate));
-        if (!bounds.IsEmpty() && bounds.Contains(x, y)) {
-            if (item != nullptr) {
-                *item = candidate;
-            }
-            return true;
-        }
-    }
-
-    return false;
 }
 
 void DrawGlobalFooter(uint8_t* framebuffer,

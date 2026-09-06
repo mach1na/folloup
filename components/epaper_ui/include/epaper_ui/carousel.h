@@ -32,11 +32,6 @@ struct CarouselStyle {
     int content_control_gap = design::carousel::kContentControlGap;
     int icon_button_size = design::carousel::kIconButtonSize;
     int icon_size = design::carousel::kIconSize;
-    // Touch targets are inflated by these margins (and extended down to the panel bottom) so
-    // slightly-low taps and the gaps between controls still register. Mirrors the global footer's
-    // asymmetric slop (the controls share the footer's bottom y-band). Does not affect the drawn size.
-    int touch_slop_x = design::carousel::kTouchSlopX;
-    int touch_slop_y = design::carousel::kTouchSlopY;
     uint8_t active_dot_color = design::carousel::kActiveDotColor;
     uint8_t inactive_dot_color = design::carousel::kInactiveDotColor;
     uint8_t disabled_control_color = design::carousel::kDisabledControlColor;
@@ -57,41 +52,10 @@ inline bool CarouselNextDisabled(const CarouselState& state)
     return state.slide_count <= 0 || state.active_index >= state.slide_count - 1;
 }
 
-// Resolved on-screen rectangles of the three controls (for hit-testing / diagnostics).
-struct CarouselControlRects {
-    UiRect close = {};
-    UiRect prev = {};
-    UiRect next = {};
-};
-CarouselControlRects CarouselControlBounds(int portrait_width,
-                                           int portrait_height,
-                                           const CarouselState& state,
-                                           const CarouselStyle& style);
-
 // The whole carousel region: full width, from below the status bar to the bottom of the panel.
 UiRect CarouselBounds(int portrait_width, int portrait_height, const CarouselStyle& style);
 // The content slot the page draws the active slide into (inside the padding, above the controls).
 UiRect CarouselContentBounds(int portrait_width, int portrait_height, const CarouselStyle& style);
-
-// Touch hit-tests. Prev/Next return false when disabled so a tap at the end is a no-op.
-bool HitTestCarouselClose(int portrait_width,
-                          int portrait_height,
-                          const CarouselState& state,
-                          const CarouselStyle& style,
-                          int x,
-                          int y);
-bool HitTestCarouselPrev(int portrait_width,
-                         int portrait_height,
-                         const CarouselState& state,
-                         const CarouselStyle& style,
-                         int x,
-                         int y);
-bool HitTestCarouselNext(int portrait_width,
-                         int portrait_height,
-                         const CarouselState& state,
-                         const CarouselStyle& style,
-                         int x,
-                         int y);
 
 // Draw the chrome (dots + Close / Prev / Next). Slide content is the caller's responsibility.
 void DrawCarousel(uint8_t* framebuffer,

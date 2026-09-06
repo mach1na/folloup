@@ -31,18 +31,6 @@ enum class OnboardingControl : uint8_t {
     kNext,
 };
 
-// Resolve a touch to one of the carousel controls (kNone if it hit nothing / a disabled control).
-OnboardingControl HitTestOnboarding(int portrait_width,
-                                    int portrait_height,
-                                    const OnboardingPageState& state,
-                                    int x,
-                                    int y);
-
-// The resolved control rectangles (same layout the hit-test uses) -- for touch diagnostics.
-CarouselControlRects OnboardingControlBounds(int portrait_width,
-                                             int portrait_height,
-                                             const OnboardingPageState& state);
-
 void DrawOnboardingPage(uint8_t* framebuffer,
                         int raw_width,
                         int raw_height,

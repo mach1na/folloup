@@ -555,7 +555,7 @@ every glyph of every string on every screen redraw. Making `DrawPixelFn` a
 template parameter (or a small concrete struct) would let the compiler
 inline the actual pixel write.
 
-## Vestigial touch contract still alive in footer/carousel hit-testing
+## ~~Vestigial touch contract still alive in footer/carousel hit-testing~~ — resolved
 
 `main/app_shell.cpp:106-112` still switches on
 `FeedbackCue::kTouchContact`, and `components/epaper_ui/global_footer.cpp:17-18,192-202`
@@ -564,3 +564,22 @@ inflation on every hit-test, on a board with no touch controller where
 nothing ever produces a touch event. Matches CLAUDE.md's own note that some
 widget code still carries vestigial touch plumbing — this is the
 mechanism-level version of that, kept alive in 5 files rather than dropped.
+
+Investigating turned up more dead code than the item assumed: the hit-test
+functions themselves (not just their slop math) had zero callers anywhere —
+`HitTestGlobalFooterItem`, `HitTestCarouselClose/Prev/Next`,
+`HitTestOnboarding`, and the "for touch diagnostics" `CarouselControlBounds`/
+`OnboardingControlBounds` pair were all unreachable; real button-driven
+navigation goes through a completely separate path
+(`OnboardingPageCoordinator::FocusedControl()` etc., which was left alone).
+Removed the whole unreachable chain: `FeedbackCue`/`FeedbackEvent`'s
+`kTouchContact` enumerators and their switch cases (`app_shell.cpp`,
+`feedback_service.{h,cpp}`); `kTouchHitSlopX/Y`, `ExpandTouchBounds`, and
+`HitTestGlobalFooterItem` (`global_footer.{h,cpp}`); `touch_slop_x/y`,
+`InflateForTouch`, `HitTestCarouselClose/Prev/Next`, `CarouselControlBounds`,
+and the `CarouselControlRects` struct (`carousel.{h,cpp}`); `HitTestOnboarding`
+and `OnboardingControlBounds` (`onboarding_page.{h,cpp}`); and the now-orphaned
+`kTouchSlopX/Y` design tokens. `OnboardingControl` (the enum) stays — it's
+genuinely load-bearing for button focus, just no longer touch-reachable.
+Verified: clean build with zero warnings, clean on-device boot with the same
+healthy display-before-storage ordering as the previous fix.

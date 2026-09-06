@@ -71,23 +71,6 @@ Layout BuildLayout(int portrait_width, int portrait_height, const CarouselState&
     return layout;
 }
 
-// Inflate a control's rect into a forgiving touch target, mirroring the global footer's asymmetric
-// slop: pad horizontally by slop_x, vertically by slop_y, and extend the bottom to the panel edge so
-// slightly-low taps (and the gaps between controls) still register.
-UiRect InflateForTouch(const UiRect& rect, int slop_x, int slop_y, int portrait_height)
-{
-    if (rect.IsEmpty()) {
-        return rect;
-    }
-    const int pad_x = std::max(0, slop_x);
-    const int pad_y = std::max(0, slop_y);
-    const int left = rect.x - pad_x;
-    const int top = rect.y - pad_y;
-    const int right = rect.right() + pad_x;
-    const int bottom = std::max(rect.bottom() + pad_y, portrait_height);
-    return {left, top, std::max(0, right - left), std::max(0, bottom - top)};
-}
-
 ButtonIconStyle ControlIconStyle(const CarouselStyle& style, bool disabled)
 {
     ButtonIconStyle icon_style = {};
@@ -103,15 +86,6 @@ ButtonIconStyle ControlIconStyle(const CarouselStyle& style, bool disabled)
 
 }  // namespace
 
-CarouselControlRects CarouselControlBounds(int portrait_width,
-                                           int portrait_height,
-                                           const CarouselState& state,
-                                           const CarouselStyle& style)
-{
-    const Layout layout = BuildLayout(portrait_width, portrait_height, state, style);
-    return {layout.close, layout.prev, layout.next};
-}
-
 UiRect CarouselBounds(int portrait_width, int portrait_height, const CarouselStyle& style)
 {
     return BuildLayout(portrait_width, portrait_height, {}, style).region;
@@ -120,51 +94,6 @@ UiRect CarouselBounds(int portrait_width, int portrait_height, const CarouselSty
 UiRect CarouselContentBounds(int portrait_width, int portrait_height, const CarouselStyle& style)
 {
     return BuildLayout(portrait_width, portrait_height, {}, style).content;
-}
-
-bool HitTestCarouselClose(int portrait_width,
-                          int portrait_height,
-                          const CarouselState& state,
-                          const CarouselStyle& style,
-                          int x,
-                          int y)
-{
-    if (!state.show_close) {
-        return false;
-    }
-    const Layout layout = BuildLayout(portrait_width, portrait_height, state, style);
-    return InflateForTouch(layout.close, style.touch_slop_x, style.touch_slop_y, portrait_height)
-        .Contains(x, y);
-}
-
-bool HitTestCarouselPrev(int portrait_width,
-                         int portrait_height,
-                         const CarouselState& state,
-                         const CarouselStyle& style,
-                         int x,
-                         int y)
-{
-    if (CarouselPrevDisabled(state)) {
-        return false;
-    }
-    const Layout layout = BuildLayout(portrait_width, portrait_height, state, style);
-    return InflateForTouch(layout.prev, style.touch_slop_x, style.touch_slop_y, portrait_height)
-        .Contains(x, y);
-}
-
-bool HitTestCarouselNext(int portrait_width,
-                         int portrait_height,
-                         const CarouselState& state,
-                         const CarouselStyle& style,
-                         int x,
-                         int y)
-{
-    if (CarouselNextDisabled(state)) {
-        return false;
-    }
-    const Layout layout = BuildLayout(portrait_width, portrait_height, state, style);
-    return InflateForTouch(layout.next, style.touch_slop_x, style.touch_slop_y, portrait_height)
-        .Contains(x, y);
 }
 
 void DrawCarousel(uint8_t* framebuffer,
