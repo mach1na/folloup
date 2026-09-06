@@ -633,3 +633,54 @@ and `OnboardingControlBounds` (`onboarding_page.{h,cpp}`); and the now-orphaned
 genuinely load-bearing for button focus, just no longer touch-reachable.
 Verified: clean build with zero warnings, clean on-device boot with the same
 healthy display-before-storage ordering as the previous fix.
+
+## Lock screen should trigger display/light sleep on entry
+
+Currently, locking the device (`lock_screen_runtime::Toggle()`, wired to
+the POWER_OK short-press gesture in `app_shell.cpp:1398-1399`) only swaps
+the active screen to `kLockScreen` — it's entirely independent of
+`device_sleep_service`'s auto-sleep stage machine, which keeps running its
+own inactivity timers regardless of whether the lock screen is showing.
+So locking the device doesn't itself put it to sleep; it just shows a
+different full-screen view that then sits awake until the normal
+display-sleep/light-sleep timeouts elapse on their own.
+
+Want locking to force entry into sleep (display sleep at minimum, likely
+light sleep as well) immediately rather than waiting out the normal
+inactivity timers. Needs a decision on exactly which stage(s) to force and
+whether `lock_screen_runtime::Show()` should call into
+`device_sleep_service` directly or through `device_sleep_runtime`.
+
+## Waking from a locked+asleep device should only be triggered by a button press
+
+Related to the item above: once locking forces sleep, motion alone
+shouldn't wake the display back up while locked — pocket/bag handling of a
+locked device would otherwise keep flashing the screen awake, which is
+both a battery drain and (since the plan above would make locking +
+sleeping routine) a minor privacy concern. `device_sleep_service.cpp`
+already distinguishes motion-sourced wake from interaction-sourced wake
+(`NotifyUserActivity`'s `ActivitySource::kMotion` is explicitly excluded
+from waking `Stage::kLightSleeping`, and only wakes `Stage::kDisplaySleeping`
+when `motion_wake_enabled` is set) — this item wants that same exclusion
+to also apply to `Stage::kDisplaySleeping` specifically while the lock
+screen is the active/restore screen, so only a real button press (an
+interaction source) can wake the display when locked, regardless of stage.
+
+## Replace the lock screen's full-screen clock with a todo summary
+
+`epaper_ui::LockScreenState` (`include/epaper_ui/lock_screen.h`) and
+`DrawLockScreen` currently only carry/render `hour_text`/`minute_text`/
+`weekday_text`/`date_text` — a big digital clock, built and refreshed once
+a minute by `lock_screen_runtime.cpp`'s `RebuildClockStateLocked`/
+`OnClockTimer`. Craig's observation: once the item above makes locking
+routine, the clock stops being useful ~30 seconds in anyway once the
+display sleeps and freezes on whatever was last drawn — an always-on
+summary of pending todos would be more useful to see at a glance than a
+clock that's usually stale.
+
+Todos data already exists via `recording_archive_service::RecordingEntry`
+(tagged `RecordingTag`, consumed by `TodosPageCoordinator` for the Todos
+page) — this would need a lock-screen-specific summary view sourced from
+the same data, plus deciding how much of the clock (if any) to keep
+alongside it. Own branch/PR; needs a design pass on what the summary
+actually shows (counts? titles? both?) before implementing.
