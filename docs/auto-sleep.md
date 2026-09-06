@@ -99,19 +99,30 @@ The light-sleep sequence is:
 3. Arm `ACTION` / `GPIO0` and the PMIC IRQ / `GPIO38` as active-low
    `gpio_wakeup_enable` light-sleep wake sources (not EXT1: this board uses the
    light-sleep GPIO-wake path, which leaves the pads on the digital peripheral).
-4. Suspend the button-service polling timer, so light sleep's clock jump cannot
-   replay a burst of missed ticks and destroy click classification on wake.
-5. Arm wake-only `ACTION` event suppression.
-6. Repaint the status bar with the sleep indicator (partial refresh).
-7. Put the e-paper panel into sleep, leaving its last content on the glass
+4. Stop Wi-Fi (`wifi_service::PrepareForLightSleep()`), so the radio doesn't
+   stay fully associated for the whole light-sleep window (up to 30 minutes by
+   default) — `wifi_service` otherwise never enters any power-save mode.
+   `RecoverAfterLightSleep()` reconnects with the same station credentials on
+   wake.
+5. Repaint the status bar with the sleep indicator (partial refresh) — by this
+   point it also reflects Wi-Fi being stopped.
+6. Put the e-paper panel into sleep, leaving its last content on the glass
    (see Display Sleep above — deliberate, not a blank screen).
-8. Call `esp_light_sleep_start()`.
-9. On wake, disarm the GPIO wake sources, restore the `ACTION` pad, and resume
-   button polling before anything slow runs.
-10. Commit the wake transition immediately, without queueing a second wake event.
-11. Consume the wake-causing power-button event as wake-only.
-12. Restore the display with a forced full refresh, even if software state has
-    already moved back to awake.
+7. Re-check the sleep blockers (`GetAutoSleepBlocker`) immediately before the
+   point of no return, aborting entry (and unwinding the Wi-Fi stop and
+   display transition above) if something started during the steps above —
+   most notably audio playback, since `WaitForPowerButtonReleased` alone can
+   poll for up to 5s.
+8. Suspend the button-service polling timer, so light sleep's clock jump cannot
+   replay a burst of missed ticks and destroy click classification on wake.
+9. Call `esp_light_sleep_start()`.
+10. On wake, disarm the GPIO wake sources, restore the `ACTION` pad, and resume
+    button polling before anything slow runs.
+11. Commit the wake transition immediately, without queueing a second wake event.
+12. Consume the wake-causing power-button event as wake-only.
+13. Restore the display with a forced full refresh, and reconnect Wi-Fi if it
+    didn't survive the sleep, even if software state has already moved back
+    to awake.
 
 Normal awake-state power-button interactions remain available outside the
 light-sleep wake path. Today that means a short press of the
@@ -130,6 +141,9 @@ Current blockers:
 - recording active
 - recording armed
 - recording saving or exporting
+- audio playback (the post-recording review replay, and the Details page's
+  Play action) — re-checked immediately before `esp_light_sleep_start()`, not
+  just when the sleep timer first decides to enter light sleep
 - shutdown pending, including the shutdown confirmation modal
 - display refresh active
 - app-declared storage write activity
