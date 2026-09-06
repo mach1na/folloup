@@ -332,6 +332,9 @@ void DrawStatusBar(uint8_t* framebuffer,
     const EmbeddedImageAsset* battery_icon = ResolveBatteryIcon(state.battery);
     const EmbeddedImageAsset* wifi_icon = ResolveWifiIcon(state.wifi);
     const EmbeddedImageAsset* gemini_icon = ResolveGeminiIcon(state.show_gemini_icon);
+    const EmbeddedImageAsset* pending_transcription_icon =
+        state.show_pending_transcription_icon ? project_assets::GetIcon(EmbeddedIconId::kFile)
+                                               : nullptr;
     const EmbeddedImageAsset* sleep_icon =
         state.show_sleep_icon ? project_assets::GetIcon(EmbeddedIconId::kSleep) : nullptr;
     const EmbeddedImageAsset* power_icon =
@@ -388,6 +391,43 @@ void DrawStatusBar(uint8_t* framebuffer,
                      icon_box,
                      gemini_icon,
                      stroke_thickness);
+    }
+
+    if (state.show_pending_transcription_icon) {
+        cursor_right -= design::status_bar::kItemGap + icon_box;
+        DrawIconSlot(framebuffer,
+                     raw_width,
+                     raw_height,
+                     portrait_width,
+                     portrait_height,
+                     cursor_right,
+                     icon_top,
+                     icon_box,
+                     pending_transcription_icon,
+                     stroke_thickness);
+
+        if (!state.pending_transcription_badge_text.empty()) {
+            // Set into the file icon's blank interior rather than a separate badge pill --
+            // a corner-overlay badge on the status bar's outermost icon can extend past the
+            // screen edge. The file glyph's folded corner sits in its top-right, so a
+            // horizontally-centered, slightly-below-center number clears it.
+            const auto count_role = design::TypographyRole::kStatusBarLabel;
+            const int count_width = MeasureText(count_role, state.pending_transcription_badge_text);
+            const int count_height = LineHeight(count_role);
+            const int count_x = cursor_right + std::max(0, (icon_box - count_width) / 2);
+            const int count_y =
+                icon_top + std::max(0, (icon_box - count_height) / 2) + (icon_box / 10);
+            DrawOutlinedText(framebuffer,
+                             raw_width,
+                             raw_height,
+                             portrait_width,
+                             portrait_height,
+                             count_x,
+                             count_y,
+                             state.pending_transcription_badge_text,
+                             count_role,
+                             stroke_thickness);
+        }
     }
 
     if (state.show_sleep_icon) {

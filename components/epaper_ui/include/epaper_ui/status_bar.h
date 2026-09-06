@@ -25,6 +25,11 @@ struct StatusBarState {
     bool show_gemini_icon = false;
     bool show_power_icon = false;
     bool show_sleep_icon = false;
+    // Shown only while at least one recording is waiting on a transcript (offline when
+    // saved, or a subsequent retry attempt still pending) -- absent otherwise, unlike a
+    // permanently-visible icon with nothing to say.
+    bool show_pending_transcription_icon = false;
+    std::string pending_transcription_badge_text = {};
 };
 
 int StatusBarHeight();

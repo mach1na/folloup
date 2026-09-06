@@ -85,6 +85,12 @@ using EventHandler = void (*)(const Event& event, void* context);
 
 esp_err_t Init();
 void SetEventHandler(EventHandler handler, void* context);
+// Mirrors gemini_service/timezone_service's network hook: gemini_service's `ready` flag
+// reflects "configured and has authenticated at some point", not live connectivity, so it
+// stays true across a later Wi-Fi disconnect. Without this, a note recorded with Wi-Fi off
+// (after a prior successful auth) would be treated as online: transcription would be
+// attempted (and fail) instead of being flagged pending_transcription for automatic retry.
+void SetNetworkConnected(bool connected);
 Snapshot GetSnapshot();
 const std::array<TagOption, 4>& TagOptions();
 

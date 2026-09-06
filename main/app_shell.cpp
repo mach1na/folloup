@@ -72,8 +72,9 @@ constexpr TickType_t kPowerButtonReleaseSettleDelay = pdMS_TO_TICKS(500);
 TaskHandle_t s_shutdown_task = nullptr;
 std::atomic<bool> s_startup_complete = false;
 std::atomic<bool> s_gemini_ready = false;
+std::atomic<bool> s_wifi_connected = false;
 uint32_t s_last_transcription_retry_generation = 0;
-std::atomic<int> s_last_footer_pending_transcription_count{-1};
+std::atomic<int> s_last_status_bar_pending_transcription_count{-1};
 std::mutex s_recording_session_feedback_mutex;
 recording_session_service::Phase s_last_recording_session_feedback_phase =
     recording_session_service::Phase::kIdle;
@@ -1212,6 +1213,19 @@ void HandleWifiEvent(const wifi_service::Event& event, void*)
     timezone_service::SetNetworkConnected(event.ui_state.connected);
     gemini_service::SetNetworkState(event.ui_state.connected,
                                     event.ui_state.access_point_mode);
+    recording_session_service::SetNetworkConnected(event.ui_state.connected);
+
+    const bool wifi_connected = event.ui_state.connected;
+    const bool was_wifi_connected =
+        s_wifi_connected.exchange(wifi_connected, std::memory_order_relaxed);
+    if (wifi_connected && !was_wifi_connected) {
+        // gemini_service's `ready` flag doesn't reset across a disconnect/reconnect once
+        // authenticated at boot, so HandleGeminiEvent's ready-edge retry trigger only ever
+        // fires on the very first boot-time authentication. Retry directly off the Wi-Fi
+        // reconnect edge too -- RetryPending() is a no-op if nothing is pending or a batch
+        // is already in flight, so firing from both edges is safe.
+        (void)transcription_retry_service::RetryPending();
+    }
 
     // Region scope, not screen scope. Wi-Fi events fire during and right after the page
     // transition, and a screen-scope partial re-inits the panel and drives it whatever the
@@ -1557,13 +1571,16 @@ void InitTimezoneService()
 void HandleRecordingArchiveEvent(const recording_archive_service::Event& event, void*)
 {
     const int pending = event.snapshot.pending_transcription_count;
-    if (s_last_footer_pending_transcription_count.exchange(pending, std::memory_order_relaxed) !=
+    if (s_last_status_bar_pending_transcription_count.exchange(pending, std::memory_order_relaxed) !=
         pending) {
-        const esp_err_t footer_err = footer_runtime::UpdateDisplayStateAndRequestRefresh(
-            display_service::RefreshMode::kPartial);
-        if (footer_err != ESP_OK && footer_err != ESP_ERR_INVALID_STATE) {
-            ESP_LOGW(kTag, "Footer update after archive event failed: %s",
-                     esp_err_to_name(footer_err));
+        const esp_err_t status_bar_err = status_bar_runtime::UpdateDisplayStateAndRequestRefresh(
+            display_service::RefreshRequest{
+                .refresh_mode = display_service::RefreshMode::kPartial,
+                .scope = display_service::RefreshScope::kRegion,
+            });
+        if (status_bar_err != ESP_OK && status_bar_err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(kTag, "Status bar update after archive event failed: %s",
+                     esp_err_to_name(status_bar_err));
         }
     }
 

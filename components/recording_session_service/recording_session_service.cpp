@@ -63,6 +63,11 @@ std::string s_pending_recording_id = {};
 // no longer matches and is dropped instead of driving a stale transition.
 uint32_t s_cue_token = 0;
 std::atomic<bool> s_playback_worker_active{false};
+// Live Wi-Fi connectivity, pushed in from app_shell (mirrors gemini_service/timezone_service's
+// SetNetworkState/SetNetworkConnected hooks). gemini_service's `ready` flag alone reflects
+// "configured and has authenticated at some point" -- it does not reset on a later
+// disconnect -- so it has to be combined with this to actually mean "reachable right now".
+std::atomic<bool> s_network_connected{false};
 // Set when BOOT is released before the start cue finishes; consumed by HandleStartCueResult.
 bool s_finish_pending_after_start_cue = false;
 
@@ -404,6 +409,11 @@ Snapshot GetSnapshot()
     return s_snapshot;
 }
 
+void SetNetworkConnected(bool connected)
+{
+    s_network_connected.store(connected, std::memory_order_relaxed);
+}
+
 const std::array<TagOption, 4>& TagOptions()
 {
     return kTagOptions;
@@ -662,7 +672,8 @@ bool SubmitTagSelection(int selected_index)
 
     recording_archive_service::SaveOptions options = {};
     options.tag = kTagOptions[static_cast<size_t>(selected_index)].tag;
-    const bool gemini_ready = gemini_service::GetSnapshot().runtime.ready;
+    const bool gemini_ready = s_network_connected.load(std::memory_order_relaxed) &&
+                              gemini_service::GetSnapshot().runtime.ready;
     options.pending_transcription = !gemini_ready;
     ESP_LOGI(kTag,
              "Starting archive save: tag=%s samples=%u duration_ms=%lu",

@@ -5,6 +5,7 @@
 #include "esp_check.h"
 #include "gemini_service.h"
 #include "power_service.h"
+#include "recording_archive_service.h"
 #include "timezone_service.h"
 #include "ui_refresh_runtime.h"
 #include "wifi_service.h"
@@ -69,6 +70,13 @@ epaper_ui::StatusBarState BuildState()
     state.time_text = BuildTimeText();
     state.show_gemini_icon =
         wifi_state.connected && gemini_service::GetSnapshot().runtime.ready;
+
+    const int pending_transcription_count =
+        recording_archive_service::GetSnapshot().pending_transcription_count;
+    state.show_pending_transcription_icon = pending_transcription_count > 0;
+    if (pending_transcription_count > 0) {
+        state.pending_transcription_badge_text = std::to_string(pending_transcription_count);
+    }
 
     power_service::Status power_status = {};
     if (power_service::ReadStatus(&power_status) == ESP_OK && power_status.battery.available) {
