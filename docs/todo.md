@@ -257,9 +257,9 @@ Fix: guard the callback member with the same mutex the task already uses
 elsewhere; consider buffering/replaying (or at minimum logging) events that
 arrive before a callback is attached.
 
-## `volatile bool` used for cross-task signaling in timezone_service.cpp
+## ~~`volatile bool` used for cross-task signaling in timezone_service.cpp~~ — resolved
 
-`s_sntp_sync_seen` (`timezone_service.cpp:134`) is a plain `volatile bool`,
+`s_sntp_sync_seen` (`timezone_service.cpp:134`) was a plain `volatile bool`,
 set from the SNTP/LWIP callback task (`OnSntpTimeSync`, line 506) and read
 from whatever task calls `SyncNow` (~line 1052). `volatile` gives no
 cross-thread visibility/ordering guarantee in the C++ memory model, unlike
@@ -268,33 +268,36 @@ the same purpose (e.g. `recording_session_service.cpp:70`'s
 `s_network_connected`). Could cause a spurious "time sync failed" report
 immediately after a real sync succeeds.
 
-Fix: change to `std::atomic<bool>`.
+Fixed: changed to `std::atomic<bool>` (relaxed ordering, matching the
+existing pattern elsewhere). Verified on-device: NTP sync still succeeds
+normally.
 
-## Latent abort-on-error hazard in i2c_device.cc (currently dead code)
+## ~~Latent abort-on-error hazard in i2c_device.cc (currently dead code)~~ — resolved
 
 `WriteRegOrDie`/`ReadRegOrDie` (`components/i2c_device/i2c_device.cc:58-66`)
-wrap register access in `ESP_ERROR_CHECK`, which calls `abort()` on any
+wrapped register access in `ESP_ERROR_CHECK`, which calls `abort()` on any
 non-OK result — contradicting the "transient I2C contention is expected"
 handling used elsewhere on the same shared bus (e.g.
 `power_service.cpp`'s `FillRtcStatus` downgrades a failed read to
-`ESP_LOGD` rather than crashing). Confirmed unused today by both
-`axp2101`/`qmi8658`, so this is a foot-gun rather than an active bug: if
-either driver ever adopts these for convenience, a single transient bus
-glitch would hard-crash/reboot the device.
+`ESP_LOGD` rather than crashing). Confirmed unused by both
+`axp2101`/`qmi8658` (and everything else in the tree), so this was a
+foot-gun rather than an active bug.
 
-Fix: remove the `OrDie` variants, or make them log-and-return like the rest
-of the shared-bus error handling.
+Fixed: removed both functions (declaration + implementation) rather than
+softening them, since nothing used them.
 
-## Hardcoded task priority literal in wifi_service.cpp
+## ~~Hardcoded task priority literal in wifi_service.cpp~~ — resolved
 
 `xTaskCreate(CaptiveDnsTask, "captive_dns", 3072, nullptr, 5, &s_dns_task)`
-(`components/wifi_service/wifi_service.cpp:696`) passes a raw priority
+(`components/wifi_service/wifi_service.cpp:696`) passed a raw priority
 literal instead of a named `followup_task_config::kPriority*` constant —
 the one outlier against CLAUDE.md's "add new tasks to task_config with a
-one-line ownership rationale" rule; every other task in the tree does this
+one-line ownership rationale" rule; every other task in the tree did this
 correctly.
 
-Fix: add a named constant to `followup_task_config.h` and use it here.
+Fixed: added `kPriorityCaptiveDns = 5` (same value, now named, with a
+one-line rationale) to `followup_task_config.h` and used it at the call
+site. Pure rename — no behavior change.
 
 ## Onboarding-viewed flag persisted directly in app_shell.cpp
 
@@ -309,19 +312,24 @@ correcting before the next feature flag copies it.
 Fix: move into a small service (or an existing one) that owns this
 namespace, matching the established pattern.
 
-## Setup portal has no fetch timeout anywhere
+## ~~Setup portal has no fetch timeout anywhere~~ — resolved
 
 `webserver/src/portal/api.ts:20-46` (`fetchApiJson`, used by every API
 helper including `wifi.ts`'s scan/connect/disconnect and
-`providerKeys.ts`'s save/clear) has no `AbortController`/timeout on its
+`providerKeys.ts`'s save/clear) had no `AbortController`/timeout on its
 `fetch` call, confirmed via grep across `webserver/src/`. If a request to
-the device's single HTTP server never resolves (e.g. mid Wi-Fi-scan), the
+the device's single HTTP server never resolved (e.g. mid Wi-Fi-scan), the
 busy flag each caller sets before the `await` (`isScanning`/`isConnecting`/
-`isCheckingStatus`/`geminiState.isBusy`) never clears in its `finally`,
-permanently disabling that button until the page is manually reloaded.
+`isCheckingStatus`/`geminiState.isBusy`) never cleared in its `finally`,
+permanently disabling that button until the page was manually reloaded.
 
-Fix: add a reasonable timeout (`AbortController` + `setTimeout`) to
-`fetchApiJson`, surfacing a timeout error like any other failure.
+Fixed: `fetchApiJson` now races the fetch against a 10s `AbortController`
+timeout (respecting a caller-supplied `signal` instead, though nothing
+passes one today), surfacing a clear timeout error like any other
+failure. Rebuilt and copied into `components/wifi_service/portal/`.
+Verified: `tsc -b`/`vite build`/`eslint` all pass, and firmware builds
+clean with the updated embedded portal. Not live-tested against the
+device's AP portal in a browser.
 
 ## ~~Setup portal doesn't enforce the firmware's Wi-Fi credential length limit client-side~~ — resolved
 
