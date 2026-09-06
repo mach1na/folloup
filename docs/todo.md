@@ -285,16 +285,18 @@ glitch would hard-crash/reboot the device.
 Fix: remove the `OrDie` variants, or make them log-and-return like the rest
 of the shared-bus error handling.
 
-## Hardcoded task priority literal in wifi_service.cpp
+## ~~Hardcoded task priority literal in wifi_service.cpp~~ — resolved
 
 `xTaskCreate(CaptiveDnsTask, "captive_dns", 3072, nullptr, 5, &s_dns_task)`
-(`components/wifi_service/wifi_service.cpp:696`) passes a raw priority
+(`components/wifi_service/wifi_service.cpp:696`) passed a raw priority
 literal instead of a named `followup_task_config::kPriority*` constant —
 the one outlier against CLAUDE.md's "add new tasks to task_config with a
-one-line ownership rationale" rule; every other task in the tree does this
+one-line ownership rationale" rule; every other task in the tree did this
 correctly.
 
-Fix: add a named constant to `followup_task_config.h` and use it here.
+Fixed: added `kPriorityCaptiveDns = 5` (same value, now named, with a
+one-line rationale) to `followup_task_config.h` and used it at the call
+site. Pure rename — no behavior change.
 
 ## Onboarding-viewed flag persisted directly in app_shell.cpp
 
