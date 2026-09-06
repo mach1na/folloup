@@ -166,3 +166,293 @@ correctly flagged and not attempted (`gemini_ready=0`); on reconnect, retry
 started within 1s (previously would never have retried at all) and both
 items completed and saved their transcripts within ~5-6s each — no more
 40s timeout, `attempted=2 succeeded=2 failed=0`.
+
+# Whole-codebase review findings (2026-09-06)
+
+A full-codebase security + best-practices pass (security audit clean — no
+findings cleared the exploitability bar; checked the AP portal's payload
+handling, TLS cert validation, SD/JSON parsing, path handling, secrets).
+Everything below is from the best-practices/correctness/efficiency/reuse
+side. Each item below is its own branch/PR.
+
+## Dead "has audio" guard on Play buttons
+
+Notes/Todos/Follow-up's "Play recording" modal option
+(`main/notes_page_runtime.cpp:291`, `main/todos_page_runtime.cpp:293`,
+`main/follow_up_page_runtime.cpp:282`) and the Details page's "Play" button
+(`main/details_page_coordinator.cpp:224`, `main/details_page_runtime.cpp:305-330`)
+all guard on `recording_path.empty()` — but `recording_path` is a
+*constructed* path (`base_path + ".wav"`, set unconditionally in
+`recording_archive_service.cpp:797`, `435`, `515`), never checked against
+the filesystem, so it's never empty for any listed entry.
+
+Failure scenario: the device supports USB-OTG SD access (Settings ->
+storage). If a user deletes/moves a `.wav` off-device over OTG but leaves
+the `.json`/`.txt` behind, on reconnect the recording still lists with a
+non-empty but dangling `recording_path`. "Play"/"Play recording" still
+shows; selecting it calls `playback_service::PlayFile` on a missing file,
+which fails silently (`ESP_LOGW` only, no user-facing toast).
+
+Fix: check the file actually exists (or surface `PlayFile`'s failure as a
+toast) rather than trusting path non-emptiness.
+
+## Two `s_startup_complete` gating gaps
+
+Every sibling event handler in `main/app_shell.cpp` (`HandleRecordingEvent`,
+`HandleTimezoneEvent`, `HandleGeminiEvent`) wraps its display update in
+`s_startup_complete.load(...) ? UpdateDisplayStateAndRequestRefresh(...) :
+UpdateDisplayState()` to avoid a partial refresh racing the mandatory first
+full-screen paint. Two places don't:
+
+- `HandleRecordingArchiveEvent` (`app_shell.cpp:1571-1585`) calls the
+  partial-refresh variant unconditionally whenever
+  `pending_transcription_count` changes. `ShowHomeScreen`'s
+  `recording_archive_service::RefreshAsync()` (kicked off at
+  `app_shell.cpp:213-224`, before `s_startup_complete` is set at line 1852)
+  runs on its own task and can call this handler before or concurrently
+  with the boot's first full refresh.
+- `lock_screen_runtime::SyncClockState(true)`, called unconditionally from
+  `HandleTimezoneEvent` (`app_shell.cpp:1122`, no `s_startup_complete`
+  check at all, unlike the status-bar refresh a few lines later in the same
+  function), schedules its own partial refresh
+  (`lock_screen_runtime.cpp:108-121`) gated only on the module's local
+  `s_active` flag. `power_key_runtime::Init()` (wired to the PMIC IRQ) is
+  live well before `s_startup_complete` flips, so a power-key press
+  followed by an early NTP-driven timezone event can trigger this.
+
+Fix: gate both the same way every other handler already does.
+
+## Auto-sleep's playback blocker isn't re-checked right before sleeping
+
+`GetAutoSleepBlocker` (`main/device_sleep_runtime.cpp:132-172`) correctly
+checks `playback_service::IsPlaying()`, but once light sleep is dispatched,
+`EnterLightSleep()`'s `WaitForPowerButtonReleased()`
+(`device_sleep_runtime.cpp:243-270`) can poll for up to 5s (250 samples x
+20ms) before `esp_light_sleep_start()` actually runs, without re-checking
+`IsPlaying()`. Starting playback in that window means the device can enter
+light sleep (killing Wi-Fi, suspending buttons) mid-playback.
+
+Fix: re-check the blocker (or re-run `GetAutoSleepBlocker`) immediately
+before the actual `esp_light_sleep_start()` call, aborting entry if it's
+now blocked.
+
+## Unsynchronized interrupt callbacks in axp2101.cc and qmi8658.cc
+
+Both `components/axp2101/axp2101.cc` and `components/qmi8658/qmi8658.cc`
+store their interrupt callbacks as bare `std::function` members
+(`interrupt_callback_` at `axp2101.cc:145-147`; `interrupt2_callback_` /
+wake-on-motion / tap callbacks at `qmi8658.cc:484-486,983-1017`), set from
+one task and read/invoked from each driver's own `InterruptTask` with no
+lock — a genuine data race if a callback is ever re-attached at runtime.
+
+Separately, both interrupt tasks start during early construction/`Initialize()`
+(`axp2101.cc:51-65`; `qmi8658.cc:183-192`) — well before the app code that
+attaches the real callback (`power_key_runtime::Init()` at
+`app_shell.cpp:1756` for the PMIC; the IMU service's callback attachment
+happens later still). Any power-key press, VBUS event, or motion/tap
+interrupt in that window is read, decoded, and `clearIrqStatus()`'d with no
+callback attached — silently lost.
+
+Fix: guard the callback member with the same mutex the task already uses
+elsewhere; consider buffering/replaying (or at minimum logging) events that
+arrive before a callback is attached.
+
+## `volatile bool` used for cross-task signaling in timezone_service.cpp
+
+`s_sntp_sync_seen` (`timezone_service.cpp:134`) is a plain `volatile bool`,
+set from the SNTP/LWIP callback task (`OnSntpTimeSync`, line 506) and read
+from whatever task calls `SyncNow` (~line 1052). `volatile` gives no
+cross-thread visibility/ordering guarantee in the C++ memory model, unlike
+the `std::atomic`/mutex pattern used everywhere else in this codebase for
+the same purpose (e.g. `recording_session_service.cpp:70`'s
+`s_network_connected`). Could cause a spurious "time sync failed" report
+immediately after a real sync succeeds.
+
+Fix: change to `std::atomic<bool>`.
+
+## Latent abort-on-error hazard in i2c_device.cc (currently dead code)
+
+`WriteRegOrDie`/`ReadRegOrDie` (`components/i2c_device/i2c_device.cc:58-66`)
+wrap register access in `ESP_ERROR_CHECK`, which calls `abort()` on any
+non-OK result — contradicting the "transient I2C contention is expected"
+handling used elsewhere on the same shared bus (e.g.
+`power_service.cpp`'s `FillRtcStatus` downgrades a failed read to
+`ESP_LOGD` rather than crashing). Confirmed unused today by both
+`axp2101`/`qmi8658`, so this is a foot-gun rather than an active bug: if
+either driver ever adopts these for convenience, a single transient bus
+glitch would hard-crash/reboot the device.
+
+Fix: remove the `OrDie` variants, or make them log-and-return like the rest
+of the shared-bus error handling.
+
+## Hardcoded task priority literal in wifi_service.cpp
+
+`xTaskCreate(CaptiveDnsTask, "captive_dns", 3072, nullptr, 5, &s_dns_task)`
+(`components/wifi_service/wifi_service.cpp:696`) passes a raw priority
+literal instead of a named `followup_task_config::kPriority*` constant —
+the one outlier against CLAUDE.md's "add new tasks to task_config with a
+one-line ownership rationale" rule; every other task in the tree does this
+correctly.
+
+Fix: add a named constant to `followup_task_config.h` and use it here.
+
+## Onboarding-viewed flag persisted directly in app_shell.cpp
+
+`main/app_shell.cpp:358-388` (`kOnboardingNvsNamespace`, `kOnboardingNvsKey`,
+`OnboardingViewed()`, `MarkOnboardingViewed()`) calls `nvs_open`/`nvs_get_u8`/
+`nvs_set_u8`/`nvs_commit` directly, unlike every other piece of persisted
+app state (Wi-Fi credentials, timezone settings, Gemini key), which goes
+through a `*_service` component that owns its NVS namespace. Low urgency (a
+small, self-contained two-function flag) but sets a precedent worth
+correcting before the next feature flag copies it.
+
+Fix: move into a small service (or an existing one) that owns this
+namespace, matching the established pattern.
+
+## Setup portal has no fetch timeout anywhere
+
+`webserver/src/portal/api.ts:20-46` (`fetchApiJson`, used by every API
+helper including `wifi.ts`'s scan/connect/disconnect and
+`providerKeys.ts`'s save/clear) has no `AbortController`/timeout on its
+`fetch` call, confirmed via grep across `webserver/src/`. If a request to
+the device's single HTTP server never resolves (e.g. mid Wi-Fi-scan), the
+busy flag each caller sets before the `await` (`isScanning`/`isConnecting`/
+`isCheckingStatus`/`geminiState.isBusy`) never clears in its `finally`,
+permanently disabling that button until the page is manually reloaded.
+
+Fix: add a reasonable timeout (`AbortController` + `setTimeout`) to
+`fetchApiJson`, surfacing a timeout error like any other failure.
+
+## Setup portal doesn't enforce the firmware's Wi-Fi credential length limit client-side
+
+`webserver/index.html:43-49` (`<ui-input id="password" variant="password">`,
+no `maxlength`) and `webserver/src/portal/wifi.ts:275-284` (`connect()`)
+only check for a non-empty password — no upper bound — while
+`wifi_service.cpp:1786` rejects `ssid.size() >= 65 || password.size() >= 65`
+server-side. A too-long password gets a full round trip to the device and
+lands on a generic "Failed to start Wi-Fi connection" toast instead of an
+immediate, specific client-side message.
+
+Fix: add `maxlength` (64) to the SSID/password inputs and check client-side
+before submitting.
+
+## Page trio duplication: Notes/Todos/Follow-up
+
+`main/notes_page_{coordinator,runtime,interactions}.cpp`,
+`todos_page_*.cpp`, and `follow_up_page_*.cpp` (9 files, ~1,900 lines) are
+~90% copy-pasted — the entire class body differs only by class name, one
+tag-filter predicate, an icon/label string, and one accessory field
+(`follow_up`/`completed`). A fix to group-focus clamping or item-list
+enter/exit logic has to be manually repeated 3x; already showing drift
+(`follow_up_page_interactions.cpp`'s `HandlePrimaryActivate` diverges
+subtly from notes' copy).
+
+Fix: extract a generic templated/policy-based `TwoLevelTimelineCoordinator`
+that each page configures, rather than three parallel implementations.
+Biggest, riskiest item on this list — worth planning carefully rather than
+doing opportunistically.
+
+## `timeline_format` helpers reimplemented independently twice
+
+`main/details_page_coordinator.cpp:19-88` and
+`main/vibe_check_page_coordinator.cpp:22-89` each locally redefine
+byte-for-byte-or-close copies of `timeline_format`'s `FormatDateLabel`/
+`FormatTimeLabel`/`FormatDurationLabel`/`TrimTranscript`/`TagText`
+(`main/timeline_format.h/.cpp`, already used correctly by
+notes/todos/follow_up). They've already drifted: details' date formatter
+is missing the "Today" comparison the shared one has, and vibe_check's
+duration formatter uses a different `<=60` vs `<60` second boundary with
+different padding.
+
+Fix: replace both local copies with calls to `timeline_format`'s existing
+helpers.
+
+## Small duplicated helpers (3 more instances)
+
+- `ForEachOutlineOffset` duplicated verbatim in
+  `components/epaper_ui/checkbox.cpp:13-23`, `list_item.cpp:15-25`, and
+  `list_item_header.cpp:49-60` — belongs in `render_utils.h`, which all
+  three already include.
+- `ApplyPrimaryActivateResult`'s dispatch switch
+  (`if (callbacks.show_home) callbacks.show_home(); return;` per intent) is
+  duplicated near-verbatim across 11 `*_page_interactions.cpp` files.
+  `shared_page_interactions.h` already generalizes the lookup half of this
+  pattern but not the dispatch half.
+- Scroll-position clamp-by-step logic
+  (`main/details_page_coordinator.cpp:166-171`,
+  `main/summarize_page_coordinator.cpp:45-52`, and
+  `main/overlay_runtime.cpp:826`) is independently reimplemented 3 times,
+  with `overlay_runtime.cpp` even using a differently-named constant for
+  the same 10% step.
+
+Fix: three small, independent extractions — could be one branch or three,
+lowest risk of the reuse findings.
+
+## Redundant derived state: icon/checked fields duplicate their source bool
+
+`TimelineEntry` (in `notes_page_coordinator.h:16-21` and mirrored in
+todos/follow_up) stores both a source-of-truth bool (`follow_up`/
+`completed`) and a separately-computed rendered projection
+(`tag_icon_asset`/`accessory.checked`), which has to be kept in sync by
+hand at 2 call sites per page (`notes_page_coordinator.cpp:81,303`,
+matching lines in todos/follow_up). A future third place that flips
+`follow_up`/`completed` (e.g. a bulk "mark all done" action) could easily
+forget to update the mirror field.
+
+Fix: derive the icon/checked state in `BuildState()` at render time instead
+of storing it. Natural to fold into the page-trio refactor above rather
+than doing separately.
+
+## SD-card mount blocks the mandatory first paint
+
+`components/storage_service/storage_service.cpp:578-611` (`Init()`) mounts
+the SDMMC card and FAT filesystem synchronously, even though the same
+function spins up a worker task for everything else. `app_shell.cpp:1810-1847`
+calls this near the very start of `Run()`, before the first screen paint —
+so every boot pays full SD detect+mount latency (and any retry) before the
+panel's first pixel. `recording_archive_service::Init()` already
+demonstrates the right pattern (cached NVS snapshot + deferred
+`RefreshAsync()` scan) that could apply to the mount itself now that a
+worker task exists.
+
+## IMU auto-sleep motion detection polls instead of using the hardware interrupt path
+
+`main/device_sleep_runtime.cpp:608-637` (`MotionPollingTask`) wakes every
+200ms to do a full I2C read + float-math classification purely to detect
+stillness for auto-sleep — but `components/qmi8658/qmi8658.cc` already
+implements complete hardware any-motion/no-motion detection via INT2
+(`ConfigMotion`, `EnableWakeOnMotion`, callbacks at lines ~877-1470), the
+same mechanism already wired for the light-sleep wake gesture.
+`components/imu_service/imu_service.cpp` never surfaces any of it — only
+`ReadSample`. Continuous I2C polling on a battery-powered device where an
+event-driven equivalent already exists elsewhere in the same driver.
+
+## E-paper SPI path uses a needlessly small bounce buffer
+
+`components/epaper_panel/epaper_panel.cpp:16` chunks every SPI write into
+1KB pieces (`kSpiDmaChunkSizeBytes`) despite the bus being configured for
+up to 48KB transfers (`kSpiBusMaxTransferSizeBytes`, line 17). A
+whole-screen partial refresh always writes both ~48000-byte planes in
+full, producing ~94 sequential blocking SPI round-trips and ~96KB of extra
+bounce-buffer copying per partial refresh. A larger DMA-capable staging
+buffer (or pipelined transfers) would cut both without touching the
+necessary full-plane rewrite itself.
+
+## Glyph rendering goes through `std::function` indirection on the hottest path
+
+`components/epaper_ui/font_renderer.cpp:110-165` (`DrawText`) calls
+`draw_pixel(...)` through a type-erased `std::function<void(int,int,uint8_t)>`
+(`include/epaper_ui/font_renderer.h:12`) inside a 4-level nested loop —
+every glyph of every string on every screen redraw. Making `DrawPixelFn` a
+template parameter (or a small concrete struct) would let the compiler
+inline the actual pixel write.
+
+## Vestigial touch contract still alive in footer/carousel hit-testing
+
+`main/app_shell.cpp:106-112` still switches on
+`FeedbackCue::kTouchContact`, and `components/epaper_ui/global_footer.cpp:17-18,192-202`
+/ `include/epaper_ui/carousel.h:35-39` still compute touch hit-slop
+inflation on every hit-test, on a board with no touch controller where
+nothing ever produces a touch event. Matches CLAUDE.md's own note that some
+widget code still carries vestigial touch plumbing — this is the
+mechanism-level version of that, kept alive in 5 files rather than dropped.
