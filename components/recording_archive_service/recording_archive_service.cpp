@@ -742,6 +742,12 @@ int64_t FileModifiedSeconds(const std::string& path)
     return static_cast<int64_t>(st.st_mtime);
 }
 
+bool FileExists(const std::string& path)
+{
+    struct stat st = {};
+    return stat(path.c_str(), &st) == 0;
+}
+
 // Returns ESP_OK when the directory was read fully (including the legitimately
 // absent case), or an error when the SD itself failed mid-read so callers can
 // tell an empty archive apart from a failed scan.
@@ -799,6 +805,7 @@ esp_err_t ListEntriesInDirectory(const std::string& directory, std::vector<Recor
         entry.metadata_path = metadata_path;
         entry.modified_unix_seconds = FileModifiedSeconds(metadata_path);
         entry.metadata = metadata;
+        entry.has_audio_file = FileExists(entry.recording_path);
         if (metadata.has_transcript) {
             std::string transcript;
             if (ReadTextFile(entry.transcript_path, &transcript)) {
@@ -897,12 +904,6 @@ struct DeleteContext {
     const char* recording_id = nullptr;
     bool deleted = false;
 };
-
-bool FileExists(const std::string& path)
-{
-    struct stat st = {};
-    return stat(path.c_str(), &st) == 0;
-}
 
 // Soft-delete: recordings are never unlinked outright. Their sidecar files are moved into a
 // mirrored "trash/<subdir>/" tree on the SD card, keeping the same id. This removes them from

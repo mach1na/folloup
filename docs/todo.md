@@ -175,26 +175,35 @@ handling, TLS cert validation, SD/JSON parsing, path handling, secrets).
 Everything below is from the best-practices/correctness/efficiency/reuse
 side. Each item below is its own branch/PR.
 
-## Dead "has audio" guard on Play buttons
+## ~~Dead "has audio" guard on Play buttons~~ — resolved
 
 Notes/Todos/Follow-up's "Play recording" modal option
 (`main/notes_page_runtime.cpp:291`, `main/todos_page_runtime.cpp:293`,
 `main/follow_up_page_runtime.cpp:282`) and the Details page's "Play" button
 (`main/details_page_coordinator.cpp:224`, `main/details_page_runtime.cpp:305-330`)
-all guard on `recording_path.empty()` — but `recording_path` is a
+all guarded on `recording_path.empty()` — but `recording_path` is a
 *constructed* path (`base_path + ".wav"`, set unconditionally in
 `recording_archive_service.cpp:797`, `435`, `515`), never checked against
-the filesystem, so it's never empty for any listed entry.
+the filesystem, so it was never empty for any listed entry.
 
 Failure scenario: the device supports USB-OTG SD access (Settings ->
 storage). If a user deletes/moves a `.wav` off-device over OTG but leaves
-the `.json`/`.txt` behind, on reconnect the recording still lists with a
+the `.json`/`.txt` behind, on reconnect the recording still listed with a
 non-empty but dangling `recording_path`. "Play"/"Play recording" still
-shows; selecting it calls `playback_service::PlayFile` on a missing file,
-which fails silently (`ESP_LOGW` only, no user-facing toast).
+showed; selecting it called `playback_service::PlayFile` on a missing
+file, which failed silently (`ESP_LOGW` only, no user-facing toast).
 
-Fix: check the file actually exists (or surface `PlayFile`'s failure as a
-toast) rather than trusting path non-emptiness.
+Fixed: added `RecordingEntry::has_audio_file`, checked once via `stat()`
+during the archive scan (`recording_archive_service.cpp`, reusing the
+existing `FileExists` helper already used elsewhere in that file) rather
+than trusting path non-emptiness. Threaded through each page's own
+`TimelineEntry` copy (notes/todos/follow-up) and the Details page
+coordinator; the Details page's primary action button is now hidden
+entirely (both in render state and in the roving-focus navigation model)
+when a transcript exists but the audio itself doesn't, since "Play" would
+otherwise have nothing to do. Verified on-device: normal playback from
+both the Notes-list "Play recording" action and the Details page "Play"
+button still complete cleanly (no regression).
 
 ## Two `s_startup_complete` gating gaps
 

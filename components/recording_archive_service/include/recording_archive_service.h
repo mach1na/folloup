@@ -45,6 +45,12 @@ struct RecordingEntry {
     std::string transcript_text = {};
     int64_t modified_unix_seconds = 0;
     RecordingMetadata metadata = {};
+    // Whether recording_path actually exists on the SD card right now, checked once at
+    // scan time. recording_path itself is always a constructed, non-empty string (never a
+    // valid "no audio" signal) -- the .wav can go missing independently of the sidecar
+    // .json/.txt (e.g. removed via the device's USB-OTG SD access), so this is the only
+    // reliable way to know whether there's actually something to play.
+    bool has_audio_file = false;
 };
 
 struct SaveOptions {

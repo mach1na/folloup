@@ -143,10 +143,12 @@ void DetailsPageCoordinator::RefreshFromArchive(const std::vector<RecordingEntry
 
 void DetailsPageCoordinator::UpdateNavigationModel()
 {
-    // The primary action button is always present for a recording (Play once a
-    // transcript exists, Transcribe otherwise), so it occupies the same control
-    // slot in both states — only its label/intent change.
-    const bool want_primary = true;
+    // The primary action button is present for a recording (Play once a transcript
+    // exists, Transcribe otherwise) except when a transcript exists but the audio
+    // itself is gone -- there, "Play" would have nothing to do, so the control slot
+    // (and its focus target) is dropped entirely, matching show_transcribe_button in
+    // BuildState().
+    const bool want_primary = !(has_transcript_ && !has_audio_file_);
     const bool have_primary =
         navigation_model_.IndexOfRole(NavigationItemRole::kDetailsPageTranscribeButton) >= 0;
     if (want_primary == have_primary) {
@@ -220,7 +222,9 @@ epaper_ui::DetailsPageState DetailsPageCoordinator::BuildState() const
     // The primary action button sits beside Back: it plays the recording once a
     // transcript exists, and otherwise transcribes it. (The reused button/role is
     // still named "transcribe" in the layout; only the label and intent vary.)
-    state.show_transcribe_button = true;
+    // Hidden when a transcript exists but the audio itself is gone (e.g. removed via
+    // USB-OTG SD access) -- "Play" would otherwise show and silently do nothing.
+    state.show_transcribe_button = !(has_transcript_ && !has_audio_file_);
     state.transcribe_button.label_text = has_transcript_ ? "Play" : "Transcribe";
     state.transcribe_button.selected =
         IsRoleFocused(NavigationItemRole::kDetailsPageTranscribeButton);
@@ -245,6 +249,7 @@ void DetailsPageCoordinator::ApplyEntry(const RecordingEntry& entry)
 {
     const std::string transcript = TrimTranscript(entry.transcript_text);
     has_transcript_ = entry.metadata.has_transcript && !transcript.empty();
+    has_audio_file_ = entry.has_audio_file;
     transcript_text_ = transcript;
     title_text_ = FormatDateLabel(entry.metadata);
     if (title_text_.empty()) {
