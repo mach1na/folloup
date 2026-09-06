@@ -196,20 +196,20 @@ which fails silently (`ESP_LOGW` only, no user-facing toast).
 Fix: check the file actually exists (or surface `PlayFile`'s failure as a
 toast) rather than trusting path non-emptiness.
 
-## Two `s_startup_complete` gating gaps
+## ~~Two `s_startup_complete` gating gaps~~ — resolved
 
 Every sibling event handler in `main/app_shell.cpp` (`HandleRecordingEvent`,
 `HandleTimezoneEvent`, `HandleGeminiEvent`) wraps its display update in
 `s_startup_complete.load(...) ? UpdateDisplayStateAndRequestRefresh(...) :
 UpdateDisplayState()` to avoid a partial refresh racing the mandatory first
-full-screen paint. Two places don't:
+full-screen paint. Two places didn't:
 
-- `HandleRecordingArchiveEvent` (`app_shell.cpp:1571-1585`) calls the
+- `HandleRecordingArchiveEvent` (`app_shell.cpp:1571-1585`) called the
   partial-refresh variant unconditionally whenever
   `pending_transcription_count` changes. `ShowHomeScreen`'s
   `recording_archive_service::RefreshAsync()` (kicked off at
   `app_shell.cpp:213-224`, before `s_startup_complete` is set at line 1852)
-  runs on its own task and can call this handler before or concurrently
+  runs on its own task and could call this handler before or concurrently
   with the boot's first full refresh.
 - `lock_screen_runtime::SyncClockState(true)`, called unconditionally from
   `HandleTimezoneEvent` (`app_shell.cpp:1122`, no `s_startup_complete`
@@ -218,9 +218,16 @@ full-screen paint. Two places don't:
   (`lock_screen_runtime.cpp:108-121`) gated only on the module's local
   `s_active` flag. `power_key_runtime::Init()` (wired to the PMIC IRQ) is
   live well before `s_startup_complete` flips, so a power-key press
-  followed by an early NTP-driven timezone event can trigger this.
+  followed by an early NTP-driven timezone event could trigger this.
 
-Fix: gate both the same way every other handler already does.
+Fixed: gated both the same way every other handler already does —
+`HandleRecordingArchiveEvent`'s status-bar refresh now uses the same
+`s_startup_complete` ternary as its siblings, and `SyncClockState`'s
+`request_refresh_if_active` argument is now `s_startup_complete.load(...)`
+instead of a bare `true` (passing `false` still rebuilds/pushes state, it
+just skips requesting a repaint — the same "apply state now, paint later"
+semantics the other handlers already rely on). Verified on-device: clean
+boot with no regressions.
 
 ## Auto-sleep's playback blocker isn't re-checked right before sleeping
 
