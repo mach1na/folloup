@@ -309,19 +309,24 @@ correcting before the next feature flag copies it.
 Fix: move into a small service (or an existing one) that owns this
 namespace, matching the established pattern.
 
-## Setup portal has no fetch timeout anywhere
+## ~~Setup portal has no fetch timeout anywhere~~ — resolved
 
 `webserver/src/portal/api.ts:20-46` (`fetchApiJson`, used by every API
 helper including `wifi.ts`'s scan/connect/disconnect and
-`providerKeys.ts`'s save/clear) has no `AbortController`/timeout on its
+`providerKeys.ts`'s save/clear) had no `AbortController`/timeout on its
 `fetch` call, confirmed via grep across `webserver/src/`. If a request to
-the device's single HTTP server never resolves (e.g. mid Wi-Fi-scan), the
+the device's single HTTP server never resolved (e.g. mid Wi-Fi-scan), the
 busy flag each caller sets before the `await` (`isScanning`/`isConnecting`/
-`isCheckingStatus`/`geminiState.isBusy`) never clears in its `finally`,
-permanently disabling that button until the page is manually reloaded.
+`isCheckingStatus`/`geminiState.isBusy`) never cleared in its `finally`,
+permanently disabling that button until the page was manually reloaded.
 
-Fix: add a reasonable timeout (`AbortController` + `setTimeout`) to
-`fetchApiJson`, surfacing a timeout error like any other failure.
+Fixed: `fetchApiJson` now races the fetch against a 10s `AbortController`
+timeout (respecting a caller-supplied `signal` instead, though nothing
+passes one today), surfacing a clear timeout error like any other
+failure. Rebuilt and copied into `components/wifi_service/portal/`.
+Verified: `tsc -b`/`vite build`/`eslint` all pass, and firmware builds
+clean with the updated embedded portal. Not live-tested against the
+device's AP portal in a browser.
 
 ## Setup portal doesn't enforce the firmware's Wi-Fi credential length limit client-side
 
