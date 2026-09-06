@@ -143,6 +143,7 @@ int Axp2101::GetInterruptLevel() const {
 }
 
 void Axp2101::SetInterruptCallback(InterruptCallback callback) {
+    std::lock_guard<std::mutex> lock(interrupt_callback_mutex_);
     interrupt_callback_ = std::move(callback);
 }
 
@@ -185,9 +186,18 @@ void Axp2101::InterruptTask() {
             clearIrqStatus();
         }
         // This runs on the dedicated IRQ task (not in ISR context), so invoke the app callback
-        // directly rather than re-dispatching through a service thread.
-        if (interrupt_callback_) {
-            interrupt_callback_(event);
+        // directly rather than re-dispatching through a service thread. Copy it out under the
+        // lock rather than holding the lock during the call, since the callback's duration
+        // isn't bounded here.
+        InterruptCallback callback;
+        {
+            std::lock_guard<std::mutex> lock(interrupt_callback_mutex_);
+            callback = interrupt_callback_;
+        }
+        if (callback) {
+            callback(event);
+        } else if (event.irq_status != 0) {
+            ESP_LOGW(kTag, "IRQ event dropped: no callback attached yet");
         }
     }
 }
