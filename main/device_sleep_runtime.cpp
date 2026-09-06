@@ -355,6 +355,17 @@ esp_err_t EnterLightSleep()
     ESP_LOGI(kTag, "Light-sleep display preparation done");
     LogLightSleepPins("after display preparation");
 
+    // GetAutoSleepBlocker() was last checked before this function was even called, and
+    // WaitForPowerButtonReleased() above alone can poll for up to 5s -- long enough for
+    // something like playback to start in the meantime. Re-check right before the point of
+    // no return so entering light sleep mid-playback (killing Wi-Fi, suspending buttons)
+    // can't happen; AbortLightSleepEntry() already unwinds the Wi-Fi stop and display
+    // transition just performed above via RestoreAfterLightSleep().
+    const device_sleep_service::BlockerReason blocker_now = GetAutoSleepBlocker(nullptr);
+    if (blocker_now != device_sleep_service::BlockerReason::kNone) {
+        return AbortLightSleepEntry(ESP_ERR_INVALID_STATE, "blocked immediately before sleep");
+    }
+
     ESP_LOGI(kTag,
              "Light-sleep start now. Expect 'returned from esp_light_sleep_start' "
              "next; if logs show a boot banner instead, the board reset or lost power.");
