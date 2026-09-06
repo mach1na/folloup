@@ -482,10 +482,12 @@ int Qmi8658::GetInterrupt2Level() const {
 }
 
 void Qmi8658::SetInterrupt2Callback(InterruptCallback callback) {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     interrupt2_callback_ = std::move(callback);
 }
 
 void Qmi8658::SetFifoSampleCallback(FifoSampleCallback callback) {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     fifo_sample_callback_ = std::move(callback);
 }
 
@@ -981,38 +983,47 @@ uint16_t Qmi8658::Update() {
 }
 
 void Qmi8658::SetWakeOnMotionCallback(EventCallback callback) {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     wake_on_motion_callback_ = std::move(callback);
 }
 
 void Qmi8658::SetTapCallback(EventCallback callback) {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     tap_callback_ = std::move(callback);
 }
 
 void Qmi8658::SetPedometerCallback(EventCallback callback) {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     pedometer_callback_ = std::move(callback);
 }
 
 void Qmi8658::SetNoMotionCallback(EventCallback callback) {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     no_motion_callback_ = std::move(callback);
 }
 
 void Qmi8658::SetAnyMotionCallback(EventCallback callback) {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     any_motion_callback_ = std::move(callback);
 }
 
 void Qmi8658::SetSignificantMotionCallback(EventCallback callback) {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     significant_motion_callback_ = std::move(callback);
 }
 
 void Qmi8658::SetGyroDataReadyCallback(EventCallback callback) {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     gyro_data_ready_callback_ = std::move(callback);
 }
 
 void Qmi8658::SetAccelDataReadyCallback(EventCallback callback) {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     accel_data_ready_callback_ = std::move(callback);
 }
 
 void Qmi8658::SetDataLockingCallback(EventCallback callback) {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
     data_locking_callback_ = std::move(callback);
 }
 
@@ -1093,8 +1104,13 @@ void Qmi8658::InterruptTask() {
         if (interrupt2_event_queue_ != nullptr) {
             xQueueSend(interrupt2_event_queue_, &event, 0);
         }
-        if (interrupt2_callback_) {
-            interrupt2_callback_(event);
+        InterruptCallback interrupt2_cb;
+        {
+            std::lock_guard<std::mutex> lock(callback_mutex_);
+            interrupt2_cb = interrupt2_callback_;
+        }
+        if (interrupt2_cb) {
+            interrupt2_cb(event);
         }
     }
 }
@@ -1256,11 +1272,17 @@ esp_err_t Qmi8658::DecodeFifoBuffer(size_t fifo_bytes, bool* updated_sample) {
     Qmi8658Sample sample = {};
     const bool dual_sensor = accelerometer_enabled_ && gyroscope_enabled_;
     const size_t total_blocks = fifo_bytes / 6;
-    auto publish_sample = [this](const Qmi8658Sample& fifo_sample) {
-        if (fifo_sample_callback_) {
+    // Copied once before the loop below rather than locking per-block.
+    FifoSampleCallback fifo_sample_cb;
+    {
+        std::lock_guard<std::mutex> lock(callback_mutex_);
+        fifo_sample_cb = fifo_sample_callback_;
+    }
+    auto publish_sample = [&fifo_sample_cb](const Qmi8658Sample& fifo_sample) {
+        if (fifo_sample_cb) {
             Qmi8658Sample published = fifo_sample;
             published.timestamp = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
-            fifo_sample_callback_(published);
+            fifo_sample_cb(published);
         }
     };
 
@@ -1413,6 +1435,32 @@ uint16_t Qmi8658::DecodeStatus(uint8_t status_int, uint8_t status0, uint8_t stat
     const uint8_t previous_motion_status = last_motion_status1_ & kMotionStatusMask;
     uint8_t next_motion_status = previous_motion_status;
 
+    // Copy the callbacks out under the lock once, rather than holding it while invoking an
+    // unbounded number of them below: SetXxxCallback() can be called from a different task than
+    // whichever task reaches this function (InterruptTask's INT2 path, or a direct Update() poll
+    // from elsewhere). Left default-constructed (falsy) when dispatch_callbacks is false.
+    EventCallback data_locking_cb;
+    EventCallback gyro_data_ready_cb;
+    EventCallback accel_data_ready_cb;
+    EventCallback significant_motion_cb;
+    EventCallback no_motion_cb;
+    EventCallback any_motion_cb;
+    EventCallback pedometer_cb;
+    EventCallback wake_on_motion_cb;
+    EventCallback tap_cb;
+    if (dispatch_callbacks) {
+        std::lock_guard<std::mutex> lock(callback_mutex_);
+        data_locking_cb = data_locking_callback_;
+        gyro_data_ready_cb = gyro_data_ready_callback_;
+        accel_data_ready_cb = accel_data_ready_callback_;
+        significant_motion_cb = significant_motion_callback_;
+        no_motion_cb = no_motion_callback_;
+        any_motion_cb = any_motion_callback_;
+        pedometer_cb = pedometer_callback_;
+        wake_on_motion_cb = wake_on_motion_callback_;
+        tap_cb = tap_callback_;
+    }
+
     if ((status_int & kStatusIntCtrl9Done) != 0) {
         result |= SensorStatus::kCtrl9CommandDone;
     }
@@ -1424,70 +1472,70 @@ uint16_t Qmi8658::DecodeStatus(uint8_t status_int, uint8_t status0, uint8_t stat
     }
     if ((status_int & (kStatusIntLocked | kStatusIntAvailable)) ==
             (kStatusIntLocked | kStatusIntAvailable) &&
-        dispatch_callbacks && data_locking_callback_) {
-        data_locking_callback_();
+        data_locking_cb) {
+        data_locking_cb();
     }
 
     if (sample_mode_ == SampleMode::kAsync) {
         if ((status0 & kStatus0GyroReady) != 0) {
             result |= SensorStatus::kGyroDataReady;
             gyroscope_data_ready_ = true;
-            if (dispatch_callbacks && gyro_data_ready_callback_) {
-                gyro_data_ready_callback_();
+            if (gyro_data_ready_cb) {
+                gyro_data_ready_cb();
             }
         }
         if ((status0 & kStatus0AccelReady) != 0) {
             result |= SensorStatus::kAccelDataReady;
             acceleration_data_ready_ = true;
-            if (dispatch_callbacks && accel_data_ready_callback_) {
-                accel_data_ready_callback_();
+            if (accel_data_ready_cb) {
+                accel_data_ready_cb();
             }
         }
     }
 
     if ((status1 & static_cast<uint8_t>(StatusEvent::kSignificantMotion)) != 0) {
         result |= SensorStatus::kSignificantMotion;
-        if (dispatch_callbacks && significant_motion_callback_ &&
+        if (significant_motion_cb &&
             (previous_motion_status &
              static_cast<uint8_t>(StatusEvent::kSignificantMotion)) == 0) {
-            significant_motion_callback_();
+            significant_motion_cb();
         }
         next_motion_status |= static_cast<uint8_t>(StatusEvent::kSignificantMotion);
     }
     if ((status1 & static_cast<uint8_t>(StatusEvent::kNoMotion)) != 0) {
         result |= SensorStatus::kNoMotion;
-        if (dispatch_callbacks && no_motion_callback_ &&
+        if (no_motion_cb &&
             (previous_motion_status & static_cast<uint8_t>(StatusEvent::kNoMotion)) == 0) {
-            no_motion_callback_();
+            no_motion_cb();
         }
         next_motion_status |= static_cast<uint8_t>(StatusEvent::kNoMotion);
         next_motion_status &= ~static_cast<uint8_t>(StatusEvent::kAnyMotion);
     }
     if ((status1 & static_cast<uint8_t>(StatusEvent::kAnyMotion)) != 0) {
         result |= SensorStatus::kAnyMotion;
-        if (dispatch_callbacks && any_motion_callback_ &&
+        if (any_motion_cb &&
             (previous_motion_status & static_cast<uint8_t>(StatusEvent::kAnyMotion)) == 0) {
-            any_motion_callback_();
+            any_motion_cb();
         }
         next_motion_status |= static_cast<uint8_t>(StatusEvent::kAnyMotion);
         next_motion_status &= ~static_cast<uint8_t>(StatusEvent::kNoMotion);
     }
     if ((status1 & static_cast<uint8_t>(StatusEvent::kPedometerMotion)) != 0) {
         result |= SensorStatus::kPedometerMotion;
-        if (dispatch_callbacks && pedometer_callback_) {
-            pedometer_callback_();
+        if (pedometer_cb) {
+            pedometer_cb();
         }
     }
     if ((status1 & static_cast<uint8_t>(StatusEvent::kWakeOnMotion)) != 0) {
         result |= SensorStatus::kWakeOnMotion;
-        if (dispatch_callbacks && wake_on_motion_callback_) {
-            wake_on_motion_callback_();
+        if (wake_on_motion_cb) {
+            wake_on_motion_cb();
         }
     }
     if ((status1 & static_cast<uint8_t>(StatusEvent::kTap)) != 0) {
         result |= SensorStatus::kTap;
-        if (dispatch_callbacks && tap_callback_) {
-            tap_callback_();
+        if (tap_cb) {
+            tap_cb();
         }
     }
 

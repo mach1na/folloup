@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <cstdint>
+#include <mutex>
 
 #include "xpowers_axp2101_driver.h"
 
@@ -69,6 +70,9 @@ private:
     gpio_num_t interrupt_pin_ = GPIO_NUM_NC;
     QueueHandle_t interrupt_isr_queue_ = nullptr;
     TaskHandle_t interrupt_task_handle_ = nullptr;
+    // Guards interrupt_callback_: SetInterruptCallback() is called from app init while
+    // InterruptTask() (a separate task, started in the constructor) may already be running.
+    std::mutex interrupt_callback_mutex_;
     InterruptCallback interrupt_callback_;
 };
 

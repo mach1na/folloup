@@ -336,6 +336,10 @@ private:
     QueueHandle_t interrupt2_isr_queue_ = nullptr;
     QueueHandle_t interrupt2_event_queue_ = nullptr;
     TaskHandle_t interrupt_task_handle_ = nullptr;
+    // Guards every callback member below: each SetXxxCallback() setter can be called from a
+    // different task than whichever task invokes them (InterruptTask's INT2 path, or a direct
+    // Update() poll from elsewhere).
+    std::mutex callback_mutex_;
     InterruptCallback interrupt2_callback_;
     FifoSampleCallback fifo_sample_callback_;
     EventCallback wake_on_motion_callback_;

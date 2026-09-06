@@ -258,26 +258,44 @@ sequence. Verified on-device: normal light-sleep entry still proceeds
 without a spurious abort. The exact race (playback starting in the ~ms
 window right before the check) wasn't specifically forced/reproduced.
 
-## Unsynchronized interrupt callbacks in axp2101.cc and qmi8658.cc
+## ~~Unsynchronized interrupt callbacks in axp2101.cc and qmi8658.cc~~ — resolved
 
 Both `components/axp2101/axp2101.cc` and `components/qmi8658/qmi8658.cc`
-store their interrupt callbacks as bare `std::function` members
+stored their interrupt callbacks as bare `std::function` members
 (`interrupt_callback_` at `axp2101.cc:145-147`; `interrupt2_callback_` /
 wake-on-motion / tap callbacks at `qmi8658.cc:484-486,983-1017`), set from
 one task and read/invoked from each driver's own `InterruptTask` with no
 lock — a genuine data race if a callback is ever re-attached at runtime.
+For `qmi8658` specifically, `Qmi8658::Update()` (a public polling method,
+not just the INT2 task) also dispatches these same callbacks, so two
+different tasks really could race on them.
 
 Separately, both interrupt tasks start during early construction/`Initialize()`
 (`axp2101.cc:51-65`; `qmi8658.cc:183-192`) — well before the app code that
 attaches the real callback (`power_key_runtime::Init()` at
-`app_shell.cpp:1756` for the PMIC; the IMU service's callback attachment
-happens later still). Any power-key press, VBUS event, or motion/tap
-interrupt in that window is read, decoded, and `clearIrqStatus()`'d with no
-callback attached — silently lost.
+`app_shell.cpp:1756` for the PMIC). Any power-key press or VBUS event in
+that window was read, decoded, and `clearIrqStatus()`'d with no callback
+attached — silently lost.
 
-Fix: guard the callback member with the same mutex the task already uses
-elsewhere; consider buffering/replaying (or at minimum logging) events that
-arrive before a callback is attached.
+Fixed: added a dedicated `callback_mutex_` to each driver guarding every
+callback member; every `SetXxxCallback()` setter now locks to assign, and
+every read site copies the callback out under the lock into a local
+before invoking it (rather than holding the lock for the call, since the
+callback's duration isn't bounded by the driver). For `qmi8658`, this
+meant threading local copies of all nine `EventCallback` members through
+`DecodeStatus()` (copied once under one lock acquisition at entry when
+`dispatch_callbacks` is true) rather than reading the members inline
+throughout that function. Also added a log line for a dropped early-PMIC
+IRQ (the "at minimum logging" half of the suggested fix; did not add
+event buffering/replay — a bigger change for a boot-window-only gap).
+
+Verified on-device: clean build, clean boot, no regressions. Confirmed via
+grep that none of `qmi8658`'s callback setters are actually called
+anywhere in the app today (`imu_service` only uses `Qmi8658::ReadSample()`
+directly) — that half of the fix is preventive/correctness-only for
+currently-unused API surface, not independently testable right now. The
+`axp2101` power-key callback path is live but unchanged in behavior (pure
+synchronization wrapper).
 
 ## ~~`volatile bool` used for cross-task signaling in timezone_service.cpp~~ — resolved
 
