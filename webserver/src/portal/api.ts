@@ -17,15 +17,34 @@ import type {
   XiaozhiModuleResponse,
 } from './types';
 
+// Every caller here sets a busy flag before awaiting and only clears it in a `finally` --
+// without a timeout, a request the device never answers (e.g. mid Wi-Fi-scan) leaves that
+// flag permanently true, wedging the corresponding button until the page is reloaded.
+const REQUEST_TIMEOUT_MS = 10000;
+
 export async function fetchApiJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    cache: 'no-store',
-    ...init,
-    headers: {
-      ...API_HEADERS,
-      ...(init?.headers || {}),
-    },
-  });
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      cache: 'no-store',
+      ...init,
+      signal: init?.signal ?? timeoutController.signal,
+      headers: {
+        ...API_HEADERS,
+        ...(init?.headers || {}),
+      },
+    });
+  } catch (error) {
+    if (timeoutController.signal.aborted) {
+      throw new Error(`Request to ${path} timed out. Check the device is still reachable.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   const contentType = response.headers.get('content-type') || '';
   const bodyText = await response.text();
