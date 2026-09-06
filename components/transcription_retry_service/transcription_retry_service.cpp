@@ -7,9 +7,9 @@
 
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "followup_task_config.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "gemini_service.h"
 #include "recording_archive_service.h"
 #include "recording_service.h"
 #include "transcription_service.h"
@@ -22,6 +22,10 @@ constexpr const char* kTag = "TranscribeRetry";
 // (kTranscribeTimeoutMs); this leaves margin for task scheduling before giving up on one item.
 constexpr int64_t kItemTimeoutUs = 40 * 1000 * 1000;
 constexpr int64_t kPollIntervalMs = 250;
+// Mirrors vibe_check_page_runtime's TranscribeWorker: loading a clip back off SD needs a
+// generously sized stack.
+constexpr uint32_t kRetryTaskStackWords = 8192;
+constexpr const char* kRetryTaskName = "transcribe_retry";
 
 std::mutex s_mutex;
 Snapshot s_snapshot = {};
@@ -102,10 +106,14 @@ bool RetryOne(const std::string& recording_id)
     return true;  // SaveTranscript already clears pending_transcription on success.
 }
 
-// Runs on gemini_service's shared worker task (see gemini_service::RunOnWorker). Since every
-// Gemini-backed job is now serialized through that one task, this batch can never actually run
-// concurrently with a live user transcription -- RetryOne's request_in_flight check above is a
-// belt-and-suspenders guard, not the sole protection it used to be.
+// Runs on its own dedicated one-shot task -- deliberately NOT on gemini_service's shared
+// worker task (see gemini_service::RunOnWorker). RetryOne blocks waiting for each item's
+// transcription to finish, but BeginTranscription's actual HTTP work is itself queued onto
+// that shared worker; if this batch ran there too, RetryOne's wait would block the very
+// task needed to run the work it's waiting on, and every item would time out. Running this
+// loop elsewhere lets the shared worker process each queued transcription immediately, while
+// BeginTranscription's own request_in_flight guard (set synchronously before it enqueues
+// anything) still keeps this from ever running concurrently with a live user transcription.
 void RunTranscriptionRetryJob()
 {
     esp_err_t status = ESP_OK;
@@ -144,6 +152,12 @@ void RunTranscriptionRetryJob()
     ESP_LOGI(kTag, "Retry batch complete: attempted=%d succeeded=%d failed=%d", attempted, succeeded,
              failed);
     s_batch_in_flight.store(false, std::memory_order_release);
+}
+
+void RetryTaskEntry(void*)
+{
+    RunTranscriptionRetryJob();
+    vTaskDelete(nullptr);
 }
 
 }  // namespace
@@ -191,7 +205,17 @@ bool RetryPending()
         NotifyLocked();
     }
 
-    gemini_service::RunOnWorker(&RunTranscriptionRetryJob);
+    const BaseType_t created = xTaskCreatePinnedToCore(
+        RetryTaskEntry, kRetryTaskName, kRetryTaskStackWords, nullptr,
+        followup_task_config::kPriorityTranscriptionRetry, nullptr, followup_task_config::kAppCore);
+    if (created != pdPASS) {
+        ESP_LOGW(kTag, "Retry batch task creation failed");
+        s_batch_in_flight.store(false, std::memory_order_release);
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_snapshot.batch_in_flight = false;
+        NotifyLocked();
+        return false;
+    }
     return true;
 }
 

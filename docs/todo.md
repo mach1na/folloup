@@ -108,18 +108,61 @@ Found two spots with a "chummy" tone:
   ("Some thoughts are passing vibes... what still hits", "Get the ball
   rolling!") — reworded to plain, neutral copy.
 
-## Offline transcription queue doesn't actually work
+## ~~Offline transcription queue doesn't actually work~~ — resolved
 
-Auto-retry for offline-recorded notes was added in commit `3366004`
-("Auto-retry transcription for notes recorded offline") but it's not working
-end-to-end:
+Auto-retry for offline-recorded notes (commit `3366004`) had three separate
+bugs stacked on top of each other:
 
-- No badge/indicator showing how many notes/todos are still untranscribed.
-- No automatic retry trigger when Wi-Fi reconnects — needs to actually kick
-  off transcription for queued items on network-back, not just be able to
-  retry if something else triggers it.
+1. **Offline recordings were never flagged as pending in the first place.**
+   `recording_session_service` decided "was this saved offline" by checking
+   `gemini_service::GetSnapshot().runtime.ready` alone
+   (`recording_session_service.cpp`) — but `ready` means "configured and has
+   authenticated at some point," not "reachable right now"; it never resets
+   on a later Wi-Fi disconnect. So a note recorded with Wi-Fi off (after any
+   prior successful boot-time auth) looked "ready," transcription was
+   attempted anyway, failed on the dead network, and — since a failed
+   attempt never sets `pending_transcription` — the recording ended up
+   indistinguishable from a generic API failure: not counted, not retried.
+   Fixed: added `recording_session_service::SetNetworkConnected()` (mirrors
+   `gemini_service`/`timezone_service`'s existing network hooks), called from
+   `app_shell::HandleWifiEvent`, and ANDed with `gemini_ready` at the one
+   decision point that already gated both the pending-flag and the
+   attempt-now-or-not choice.
+2. **No automatic retry trigger when Wi-Fi reconnects.**
+   `transcription_retry_service::RetryPending()` had exactly one caller,
+   gated on a Gemini-ready false→true edge in `app_shell.cpp` — but that
+   edge only ever fires once, at the first boot-time auth, since `ready`
+   doesn't reset on disconnect (see above). Fixed: `HandleWifiEvent` now also
+   calls `RetryPending()` directly on a Wi-Fi disconnected→connected edge
+   (`RetryPending()` is already a safe no-op if nothing's pending or a batch
+   is already running).
+3. **Retry batch always "failed" even when the transcript came through.**
+   Found while verifying fix #2 on-device: every retried item took exactly
+   the 40s poll timeout and was marked failed, then its transcript showed up
+   moments later anyway. Root cause: `RunTranscriptionRetryJob` ran on
+   `gemini_service`'s single shared worker task and then *blocked* on that
+   same task waiting for `BeginTranscription`'s result — but
+   `BeginTranscription`'s actual HTTP work is itself queued onto that same
+   worker, so it could never get a turn to run until the blocking wait gave
+   up. Fixed: the retry batch now runs on its own dedicated one-shot task
+   (`kPriorityTranscriptionRetry` in `followup_task_config.h`, mirroring
+   `vibe_check_page_runtime`'s `TranscribeWorker` pattern) — `BeginTranscription`'s
+   own `request_in_flight` guard (set synchronously before it enqueues
+   anything) still keeps it from running concurrently with a live user
+   transcription.
 
-Needs investigation into why the existing auto-retry logic isn't firing
-before deciding on a fix.
+Also added the missing badge: a `kFile` icon in the status bar, visible only
+while `pending_transcription_count > 0`, with the count rendered directly
+inside the icon's blank interior rather than a separate corner-badge pill —
+a first pass overlaid a badge widget at the icon's corner, but on the
+status bar's outermost icon that pushed part of it off-screen; there's also
+an existing, fully-wired but never-shown badge on the footer's "folder"
+button (`footer_runtime.cpp`) that was considered and rejected in favor of
+this, since that button has no destination screen and enabling it made a
+permanently-visible dead button.
 
-Own branch/PR.
+Verified on-device end-to-end: two notes recorded with Wi-Fi off were
+correctly flagged and not attempted (`gemini_ready=0`); on reconnect, retry
+started within 1s (previously would never have retried at all) and both
+items completed and saved their transcripts within ~5-6s each — no more
+40s timeout, `attempted=2 succeeded=2 failed=0`.

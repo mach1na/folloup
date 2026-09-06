@@ -25,6 +25,10 @@ inline constexpr UBaseType_t kPriorityWifiCallbacks = 3;
 inline constexpr UBaseType_t kPriorityStorage = 2;
 inline constexpr UBaseType_t kPriorityTimezoneSync = 2;
 inline constexpr UBaseType_t kPriorityGemini = 2;
+// One-shot batch task for retrying offline-queued transcriptions. Must NOT run on
+// gemini_service's own shared worker task: it blocks waiting on a transcription result that
+// is itself queued onto that same worker, which would never get a turn to run.
+inline constexpr UBaseType_t kPriorityTranscriptionRetry = 2;
 // Background battery/RTC telemetry poll. Low priority on purpose: it caches
 // last-good values off the UI path, so a poll that loses a race to SD/display
 // bus activity simply retries on the next cycle without ever blocking a refresh.
