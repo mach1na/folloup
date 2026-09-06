@@ -46,13 +46,13 @@ refresh cycle against the panel's ghosting budget
 (`kMaxPartialRefreshesBeforeFlush`). Docs updated to describe this as
 intentional instead of a spec the code fails to meet — no code change needed.
 
-## Battery usage investigation
+## ~~Battery usage investigation~~ — closed for now
 
-Look at overall battery efficiency and see where we can improve it — covers
-active draw (audio codec kept on for its lifetime per
-`docs/app-architecture.md`, Wi-Fi, display refresh frequency) and sleep-path
-draw (light sleep / display sleep via `device_sleep_service` +
-`main/device_sleep_runtime.cpp`, AXP2101 rail behavior).
+Looked at overall battery efficiency: active draw (audio codec kept on for
+its lifetime per `docs/app-architecture.md`, Wi-Fi, display refresh
+frequency) and sleep-path draw (light sleep / display sleep via
+`device_sleep_service` + `main/device_sleep_runtime.cpp`, AXP2101 rail
+behavior).
 
 Investigated: the AXP2101 driver has no current-sense ADC at all (only
 voltage/percent/temperature readback — `getBatteryPercent()` is a pure
@@ -60,12 +60,12 @@ voltage-curve estimate, not a coulomb counter), so there's no way to get real
 mA numbers from software. Actual before/after measurement needs external
 hardware (a USB inline power meter or multimeter).
 
-~~Wi-Fi never enters any power-save mode, including during light sleep~~ —
-resolved. `wifi_service.cpp` hard-disables Wi-Fi power save
+Fixed: Wi-Fi never entered any power-save mode, including during light
+sleep. `wifi_service.cpp` hard-disables Wi-Fi power save
 (`esp_wifi_set_ps(WIFI_PS_NONE)`), and light sleep never disconnected or
 stopped Wi-Fi first — so for the whole light-sleep window (up to 30 minutes
 by default) the radio stayed fully associated at full power, undermining much
-of the point of that sleep state. Fixed: `wifi_service::PrepareForLightSleep()`
+of the point of that sleep state. `wifi_service::PrepareForLightSleep()` now
 stops the Wi-Fi radio before `esp_light_sleep_start()`
 (`main/device_sleep_runtime.cpp`'s `EnterLightSleep()`); the existing
 `RecoverAfterLightSleep()` reconnect path (already built to handle a
@@ -75,7 +75,9 @@ sleep, and the status bar's Wi-Fi/Gemini icon (frozen during sleep like
 everything else on an e-paper display, per the resolved item above) shows
 connected again once awake.
 
-Still open / not investigated:
+Closed here, not because there's nothing left, but because Craig is going to
+use the device with the fix above for a while and re-raise if battery life
+still doesn't feel right. Known not-done, for whenever this reopens:
 - Audio codec + amp + I2S DMA stay powered for their entire lifetime, even
   sitting idle — this is a deliberate, already-reasoned tradeoff (see
   "Audio (ES8311 codec, full duplex)" in `docs/app-architecture.md`,
@@ -83,8 +85,6 @@ Still open / not investigated:
 - Display refresh frequency / any further sleep-path tuning.
 - Actual measured runtime/current numbers, pending external measurement
   hardware.
-
-Own branch/PR.
 
 ## Reorder footer icons for usability
 
