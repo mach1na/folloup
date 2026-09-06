@@ -339,18 +339,23 @@ Fixed: added `kPriorityCaptiveDns = 5` (same value, now named, with a
 one-line rationale) to `followup_task_config.h` and used it at the call
 site. Pure rename — no behavior change.
 
-## Onboarding-viewed flag persisted directly in app_shell.cpp
+## ~~Onboarding-viewed flag persisted directly in app_shell.cpp~~ — resolved
 
 `main/app_shell.cpp:358-388` (`kOnboardingNvsNamespace`, `kOnboardingNvsKey`,
-`OnboardingViewed()`, `MarkOnboardingViewed()`) calls `nvs_open`/`nvs_get_u8`/
+`OnboardingViewed()`, `MarkOnboardingViewed()`) called `nvs_open`/`nvs_get_u8`/
 `nvs_set_u8`/`nvs_commit` directly, unlike every other piece of persisted
 app state (Wi-Fi credentials, timezone settings, Gemini key), which goes
 through a `*_service` component that owns its NVS namespace. Low urgency (a
-small, self-contained two-function flag) but sets a precedent worth
-correcting before the next feature flag copies it.
+small, self-contained two-function flag) but set a precedent worth
+correcting before the next feature flag copied it.
 
-Fix: move into a small service (or an existing one) that owns this
-namespace, matching the established pattern.
+Fixed: extracted a new minimal `app_state_service` component (just the two
+functions, moved verbatim — same NVS namespace `"app_state"` and key
+`"onboarded"`, so existing on-device state carries over unchanged) and
+updated `app_shell.cpp`'s two call sites. `main/CMakeLists.txt` now depends
+on it; `nvs.h` dropped from `app_shell.cpp`'s includes since nothing else
+there used it. Verified on-device: boots straight to Home (not onboarding),
+confirming the flag round-trips through the new component correctly.
 
 ## ~~Setup portal has no fetch timeout anywhere~~ — resolved
 

@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "app_state_service.h"
 #include "button_input_runtime.h"
 #include "button_service.h"
 #include "device_sleep_service.h"
@@ -38,7 +39,6 @@
 #include "details_page_runtime.h"
 #include "follow_up_page_runtime.h"
 #include "notes_page_runtime.h"
-#include "nvs.h"
 #include "onboarding_page_runtime.h"
 #include "status_bar_runtime.h"
 #include "todos_page_runtime.h"
@@ -353,39 +353,9 @@ esp_err_t ShowFollowUpScreen(display_service::RefreshMode refresh_mode)
                                              "show_follow_up_screen");
 }
 
-// Persisted first-run flag. Device/firmware state (not tied to the SD card), so it survives an SD
-// format; a future Settings action can clear it to replay onboarding.
-constexpr const char* kOnboardingNvsNamespace = "app_state";
-constexpr const char* kOnboardingNvsKey = "onboarded";
-
 // True while onboarding was opened via the Settings "Manual" button (as opposed to first boot). In
 // that mode dismissal returns to Settings and does NOT touch the "onboarded" flag.
 bool s_onboarding_from_settings = false;
-
-bool OnboardingViewed()
-{
-    nvs_handle_t handle = 0;
-    if (nvs_open(kOnboardingNvsNamespace, NVS_READONLY, &handle) != ESP_OK) {
-        return false;
-    }
-    uint8_t viewed = 0;
-    const esp_err_t err = nvs_get_u8(handle, kOnboardingNvsKey, &viewed);
-    nvs_close(handle);
-    return err == ESP_OK && viewed != 0;
-}
-
-void MarkOnboardingViewed()
-{
-    nvs_handle_t handle = 0;
-    if (nvs_open(kOnboardingNvsNamespace, NVS_READWRITE, &handle) != ESP_OK) {
-        ESP_LOGW(kTag, "Onboarding flag: nvs_open failed");
-        return;
-    }
-    if (nvs_set_u8(handle, kOnboardingNvsKey, 1) == ESP_OK) {
-        (void)nvs_commit(handle);
-    }
-    nvs_close(handle);
-}
 
 esp_err_t ShowOnboardingScreen(display_service::RefreshMode refresh_mode)
 {
@@ -434,7 +404,7 @@ void HandleOnboardingDismissIfRequested()
         }
         return;
     }
-    MarkOnboardingViewed();
+    app_state_service::MarkOnboardingViewed();
     const esp_err_t err = ShowHomeScreen(display_service::RefreshMode::kFull);
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGW(kTag, "Onboarding dismiss -> home failed: %s", esp_err_to_name(err));
@@ -1845,7 +1815,7 @@ void Run()
         ESP_LOGW(kTag, "Initial footer update failed: %s", esp_err_to_name(footer_err));
     }
     // First-run users see the onboarding carousel; returning users go straight to the dashboard.
-    const bool show_onboarding = !OnboardingViewed();
+    const bool show_onboarding = !app_state_service::OnboardingViewed();
     const esp_err_t initial_err =
         show_onboarding ? ShowOnboardingScreen(display_service::RefreshMode::kFull)
                         : ShowHomeScreen(display_service::RefreshMode::kFull);
