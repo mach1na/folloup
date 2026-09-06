@@ -337,6 +337,10 @@ esp_err_t EnterLightSleep()
         return AbortLightSleepEntry(err, "arm GPIO light-sleep wake failed");
     }
 
+    // Stop Wi-Fi before the status bar repaint below, so its icon reflects the radio
+    // actually being off for this sleep. RecoverAfterLightSleep() reconnects on wake.
+    wifi_service::PrepareForLightSleep();
+
     ESP_LOGI(kTag, "Light-sleep display preparation begin");
     status_bar_runtime::SetSleepIndicatorVisible(true);
     err = status_bar_runtime::UpdateDisplayStateAndRefreshNow(display_service::RefreshMode::kPartial);

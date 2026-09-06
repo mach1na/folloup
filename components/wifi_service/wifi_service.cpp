@@ -1870,6 +1870,51 @@ bool ClearSavedCredentials()
     return ClearCredentialsFromNvs();
 }
 
+void PrepareForLightSleep()
+{
+    if (!s_initialized || !s_stack_initialized) {
+        return;
+    }
+
+    bool wifi_enabled = false;
+    bool access_point_mode = false;
+    {
+        std::lock_guard<std::mutex> lock(s_state_mutex);
+        wifi_enabled = s_wifi_enabled;
+        access_point_mode = s_access_point_mode;
+    }
+
+    // AP setup mode is already a sleep blocker (device_sleep_runtime never lets light
+    // sleep start while it's active), so this should never see access_point_mode ==
+    // true -- skip defensively rather than tear down the setup portal if it somehow does.
+    if (!wifi_enabled || access_point_mode) {
+        return;
+    }
+
+    ResolveInFlightScan(ESP_ERR_INVALID_STATE);
+    CheckOrAbort(esp_timer_stop(s_connect_timer), "esp_timer_stop");
+    {
+        std::lock_guard<std::mutex> lock(s_state_mutex);
+        s_suppress_disconnect_event = true;
+        s_connect_timer_active = false;
+        s_reconnecting = false;
+        s_connected = false;
+        s_ip_address.clear();
+        s_rssi = 0;
+    }
+
+    const esp_err_t err = esp_wifi_stop();
+    if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT && err != ESP_ERR_WIFI_NOT_STARTED) {
+        ESP_LOGW(kTag, "esp_wifi_stop before light sleep failed: %s", esp_err_to_name(err));
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_state_mutex);
+        s_suppress_disconnect_event = false;
+    }
+    ESP_LOGI(kTag, "Wi-Fi stopped for light sleep");
+}
+
 void RecoverAfterLightSleep()
 {
     if (!s_initialized) {
