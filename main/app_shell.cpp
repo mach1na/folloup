@@ -107,9 +107,6 @@ void PlayInteractionFeedback(const app_interaction::InputResult& result)
         case app_interaction::FeedbackCue::kClick:
             PlayFeedback(feedback_service::FeedbackEvent::kButtonClick);
             break;
-        case app_interaction::FeedbackCue::kTouchContact:
-            PlayFeedback(feedback_service::FeedbackEvent::kTouchContact);
-            break;
         case app_interaction::FeedbackCue::kModalOpen:
             PlayFeedback(feedback_service::FeedbackEvent::kModalOpen);
             break;

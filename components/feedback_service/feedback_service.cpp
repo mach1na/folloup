@@ -30,8 +30,6 @@ SoundCue CueForEvent(FeedbackEvent event)
         case FeedbackEvent::kButtonDoubleClick:
         case FeedbackEvent::kButtonLongPress:
             return SoundCue::kButtonActivate;
-        case FeedbackEvent::kTouchContact:
-            return SoundCue::kNavigationMove;
         case FeedbackEvent::kShutdown:
             return SoundCue::kModalNotification;
         case FeedbackEvent::kError:

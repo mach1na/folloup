@@ -248,10 +248,6 @@ inline constexpr int kControlGap = spacing::k12;          // gap between Close /
 inline constexpr int kContentControlGap = spacing::k16;   // gap between the slot and the control row
 inline constexpr int kIconButtonSize = global_footer::kButtonSize;  // matches footer icon buttons
 inline constexpr int kIconSize = global_footer::kIconSize;
-// Touch-target inflation, mirroring the global footer (which shares this bottom y-band): generous
-// vertically for low-drift taps, tight horizontally so adjacent controls tile without overlap.
-inline constexpr int kTouchSlopY = spacing::k12;         // == footer's vertical hit slop
-inline constexpr int kTouchSlopX = kControlGap / 2;      // half the gap: targets meet, no dead zone
 inline constexpr uint8_t kActiveDotColor = color::kTextPrimary;      // filled black
 inline constexpr uint8_t kInactiveDotColor = color::kGrayLight;      // light grey
 // Greyed prev/next at the ends. kGrayDark (50% checkerboard dither) instead of kGrayLight (25%

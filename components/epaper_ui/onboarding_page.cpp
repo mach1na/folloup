@@ -23,32 +23,6 @@ CarouselStyle Style()
 
 }  // namespace
 
-OnboardingControl HitTestOnboarding(int portrait_width,
-                                    int portrait_height,
-                                    const OnboardingPageState& state,
-                                    int x,
-                                    int y)
-{
-    const CarouselStyle style = Style();
-    if (HitTestCarouselClose(portrait_width, portrait_height, state.carousel, style, x, y)) {
-        return OnboardingControl::kClose;
-    }
-    if (HitTestCarouselPrev(portrait_width, portrait_height, state.carousel, style, x, y)) {
-        return OnboardingControl::kPrev;
-    }
-    if (HitTestCarouselNext(portrait_width, portrait_height, state.carousel, style, x, y)) {
-        return OnboardingControl::kNext;
-    }
-    return OnboardingControl::kNone;
-}
-
-CarouselControlRects OnboardingControlBounds(int portrait_width,
-                                             int portrait_height,
-                                             const OnboardingPageState& state)
-{
-    return CarouselControlBounds(portrait_width, portrait_height, state.carousel, Style());
-}
-
 void DrawOnboardingPage(uint8_t* framebuffer,
                         int raw_width,
                         int raw_height,

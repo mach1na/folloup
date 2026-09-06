@@ -8,7 +8,6 @@ namespace app_interaction {
 enum class FeedbackCue : uint8_t {
     kNone = 0,
     kClick,
-    kTouchContact,
     kModalOpen,
     kError,
     kRecordingStart,

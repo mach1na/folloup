@@ -15,7 +15,6 @@ enum class FeedbackEvent {
     kButtonClick,
     kButtonDoubleClick,
     kButtonLongPress,
-    kTouchContact,
     kShutdown,
     kError,
 };

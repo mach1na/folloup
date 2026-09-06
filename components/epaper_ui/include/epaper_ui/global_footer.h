@@ -58,12 +58,6 @@ UiRect GlobalFooterItemVisualBounds(int portrait_width,
                                     int portrait_height,
                                     const GlobalFooterState& state,
                                     GlobalFooterItemId item);
-bool HitTestGlobalFooterItem(int portrait_width,
-                             int portrait_height,
-                             const GlobalFooterState& state,
-                             int x,
-                             int y,
-                             GlobalFooterItemId* item);
 void DrawGlobalFooter(uint8_t* framebuffer,
                       int raw_width,
                       int raw_height,
