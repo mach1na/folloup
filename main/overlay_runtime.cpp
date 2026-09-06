@@ -12,6 +12,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "page_navigation/roving_focus.h"
+#include "shared_page_interactions.h"
 #include "ui_refresh_runtime.h"
 
 namespace overlay_runtime {
@@ -822,12 +823,12 @@ bool MoveFocus(int delta)
         if (s_sticky_note_state.visible) {
             if (s_sticky_note_state.scroll_active) {
                 // Entered the transcript: UP/DOWN scroll by a fixed percent, clamped [0,100].
-                const int step =
-                    delta > 0 ? kStickyScrollStepPercent : -kStickyScrollStepPercent;
-                const int next =
-                    std::clamp(s_sticky_note_state.scroll_position_percent + step, 0, 100);
-                if (next != s_sticky_note_state.scroll_position_percent) {
-                    s_sticky_note_state.scroll_position_percent = next;
+                const shared_page_interactions::ScrollStepResult step =
+                    shared_page_interactions::StepScrollPercent(
+                        s_sticky_note_state.scroll_position_percent, delta,
+                        kStickyScrollStepPercent);
+                if (step.changed) {
+                    s_sticky_note_state.scroll_position_percent = step.value;
                     refresh_policy = DetermineOverlayRefreshPolicy(
                         before, CaptureOverlayRefreshSnapshotLocked());
                     changed = true;

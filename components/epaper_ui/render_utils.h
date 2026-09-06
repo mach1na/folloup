@@ -14,6 +14,21 @@
 namespace epaper_ui {
 
 int ClampPositive(int value);
+// Invoke `fn(dx, dy)` for every stroke offset in the (2t+1)^2 neighborhood except the center,
+// matching followup's outline pass used to knock content out against a filled background.
+template <typename DrawFn>
+void ForEachOutlineOffset(int stroke_thickness, DrawFn&& fn)
+{
+    const int thickness = ClampPositive(stroke_thickness);
+    for (int dy = -thickness; dy <= thickness; ++dy) {
+        for (int dx = -thickness; dx <= thickness; ++dx) {
+            if (dx == 0 && dy == 0) {
+                continue;
+            }
+            fn(dx, dy);
+        }
+    }
+}
 // Greedy word-wrap of `text` into lines that each fit `max_width` for the given typography
 // role. Returns the whole text as a single line when max_width <= 0 or it already fits.
 std::vector<std::string> WrapTextToWidth(design::TypographyRole role,

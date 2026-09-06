@@ -444,26 +444,36 @@ this (the drift the finding itself flagged, not preserved):
 Verified on-device: confirmed both changes render correctly (Details page
 "Today" label, Vibe Check unpadded duration).
 
-## Small duplicated helpers (3 more instances)
+## ~~Small duplicated helpers (3 more instances)~~ — two resolved, one skipped
 
-- `ForEachOutlineOffset` duplicated verbatim in
+- ~~`ForEachOutlineOffset` duplicated verbatim in
   `components/epaper_ui/checkbox.cpp:13-23`, `list_item.cpp:15-25`, and
-  `list_item_header.cpp:49-60` — belongs in `render_utils.h`, which all
-  three already include.
-- `ApplyPrimaryActivateResult`'s dispatch switch
-  (`if (callbacks.show_home) callbacks.show_home(); return;` per intent) is
-  duplicated near-verbatim across 11 `*_page_interactions.cpp` files.
-  `shared_page_interactions.h` already generalizes the lookup half of this
-  pattern but not the dispatch half.
-- Scroll-position clamp-by-step logic
-  (`main/details_page_coordinator.cpp:166-171`,
-  `main/summarize_page_coordinator.cpp:45-52`, and
-  `main/overlay_runtime.cpp:826`) is independently reimplemented 3 times,
-  with `overlay_runtime.cpp` even using a differently-named constant for
-  the same 10% step.
+  `list_item_header.cpp:49-60`~~ — resolved. Moved into `render_utils.h`
+  (all three already included it) as a header-only template; the three
+  local copies removed.
+- **Skipped, not the simple fix it looked like**: `ApplyPrimaryActivateResult`'s
+  dispatch switch across 11 `*_page_interactions.cpp` files. On closer
+  inspection each page's `ActivateIntent`/`ActivateCallbacks` are genuinely
+  different types with different shapes — different callback counts,
+  `onboarding_page_interactions` has a completely unrelated single-callback
+  set, and `wifi_page_interactions` has a callback that takes parameters
+  (`toggle_selected_network_connection(bool, ssid, password)`). A real
+  shared dispatcher would mean restructuring every page's callback contract
+  into a uniform shape first — a bigger, riskier redesign than this "quick
+  win" item implied, closer in scope to the page-trio refactor below. Left
+  as-is; `shared_page_interactions.h`'s existing lookup-half generalization
+  (`HandleFooterPrimaryActivate`) still stands on its own.
+- ~~Scroll-position clamp-by-step logic
+  (`main/details_page_coordinator.cpp`, `main/summarize_page_coordinator.cpp`,
+  and `main/overlay_runtime.cpp`)~~ — resolved. Added
+  `shared_page_interactions::StepScrollPercent(current, delta, step_percent)`
+  (clamps into `[0,100]`, reports whether it actually changed) and switched
+  all three call sites to it, including `overlay_runtime.cpp`'s
+  differently-named `kStickyScrollStepPercent` constant, which now just
+  passes its own step size into the shared function.
 
-Fix: three small, independent extractions — could be one branch or three,
-lowest risk of the reuse findings.
+Verified on-device: transcript scrolling (Details page) still scrolls
+smoothly and stops correctly at 0%/100%.
 
 ## Redundant derived state: icon/checked fields duplicate their source bool
 

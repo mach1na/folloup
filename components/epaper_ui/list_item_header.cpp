@@ -46,22 +46,6 @@ std::string FitLabelText(design::TypographyRole role, const std::string& text, i
     return kEllipsis;
 }
 
-// Invoke `fn(dx, dy)` for every stroke offset in the (2t+1)^2 neighborhood except the center,
-// matching followup's outline pass used to knock content out against a filled background.
-template <typename DrawFn>
-void ForEachOutlineOffset(int stroke_thickness, DrawFn&& fn)
-{
-    const int thickness = ClampPositive(stroke_thickness);
-    for (int dy = -thickness; dy <= thickness; ++dy) {
-        for (int dx = -thickness; dx <= thickness; ++dx) {
-            if (dx == 0 && dy == 0) {
-                continue;
-            }
-            fn(dx, dy);
-        }
-    }
-}
-
 void DrawCenteredIcon(uint8_t* framebuffer,
                       int raw_width,
                       int raw_height,

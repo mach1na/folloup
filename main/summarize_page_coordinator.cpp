@@ -1,6 +1,6 @@
 #include "summarize_page_coordinator.h"
 
-#include <algorithm>
+#include "shared_page_interactions.h"
 
 namespace {
 
@@ -44,12 +44,12 @@ bool SummarizePageCoordinator::MoveFocus(int delta)
     }
     if (scroll_container_active_) {
         const int current = scroll_position_percent_[static_cast<size_t>(selected_segment_index_)];
-        const int next = std::clamp(
-            current + (delta > 0 ? kScrollStepPercent : -kScrollStepPercent), 0, 100);
-        if (next == current) {
+        const shared_page_interactions::ScrollStepResult step =
+            shared_page_interactions::StepScrollPercent(current, delta, kScrollStepPercent);
+        if (!step.changed) {
             return false;
         }
-        scroll_position_percent_[static_cast<size_t>(selected_segment_index_)] = next;
+        scroll_position_percent_[static_cast<size_t>(selected_segment_index_)] = step.value;
         return true;
     }
     return focus_.Move(delta);

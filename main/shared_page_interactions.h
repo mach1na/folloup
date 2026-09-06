@@ -1,10 +1,27 @@
 #ifndef SHARED_PAGE_INTERACTIONS_H_
 #define SHARED_PAGE_INTERACTIONS_H_
 
+#include <algorithm>
+
 #include "page_action_result.h"
 #include "page_navigation/navigation_model.h"
 
 namespace shared_page_interactions {
+
+struct ScrollStepResult {
+    int value = 0;
+    bool changed = false;
+};
+
+// Steps a [0,100] scroll percentage by `step_percent` in the direction of `delta`, clamped to
+// the range. `changed` is false when already at an edge (the step would clamp back to the
+// same value) -- callers use this to report "not handled" rather than a no-op state change.
+inline ScrollStepResult StepScrollPercent(int current, int delta, int step_percent)
+{
+    const int step = delta > 0 ? step_percent : -step_percent;
+    const int next = std::clamp(current + step, 0, 100);
+    return {next, next != current};
+}
 
 template <typename ActivateResult, typename ActivateIntent, typename Coordinator>
 ActivateResult HandleFooterPrimaryActivate(const Coordinator& coordinator,
