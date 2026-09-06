@@ -9,20 +9,6 @@
 namespace epaper_ui {
 namespace {
 
-template <typename DrawFn>
-void ForEachOutlineOffset(int stroke_thickness, DrawFn&& fn)
-{
-    const int thickness = ClampPositive(stroke_thickness);
-    for (int dy = -thickness; dy <= thickness; ++dy) {
-        for (int dx = -thickness; dx <= thickness; ++dx) {
-            if (dx == 0 && dy == 0) {
-                continue;
-            }
-            fn(dx, dy);
-        }
-    }
-}
-
 const EmbeddedImageAsset* ResolveAsset(bool checked)
 {
     return project_assets::GetIcon(checked ? EmbeddedIconId::kCheckboxChecked

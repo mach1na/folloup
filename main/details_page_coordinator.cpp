@@ -1,8 +1,7 @@
 #include "details_page_coordinator.h"
 
-#include <algorithm>
-
 #include "project_assets.h"
+#include "shared_page_interactions.h"
 #include "timeline_format.h"
 
 namespace {
@@ -89,12 +88,13 @@ bool DetailsPageCoordinator::MoveFocus(int delta)
         return false;
     }
     if (scroll_container_active_) {
-        const int step = delta > 0 ? kScrollStepPercent : -kScrollStepPercent;
-        const int next = std::clamp(scroll_position_percent_ + step, 0, 100);
-        if (next == scroll_position_percent_) {
+        const shared_page_interactions::ScrollStepResult step =
+            shared_page_interactions::StepScrollPercent(scroll_position_percent_, delta,
+                                                         kScrollStepPercent);
+        if (!step.changed) {
             return false;
         }
-        scroll_position_percent_ = next;
+        scroll_position_percent_ = step.value;
         return true;
     }
     return focus_.Move(delta);

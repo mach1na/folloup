@@ -13,20 +13,6 @@ namespace {
 
 constexpr int kItemCornerRadius = design::spacing::k4;
 
-template <typename DrawFn>
-void ForEachOutlineOffset(int stroke_thickness, DrawFn&& fn)
-{
-    const int thickness = ClampPositive(stroke_thickness);
-    for (int dy = -thickness; dy <= thickness; ++dy) {
-        for (int dx = -thickness; dx <= thickness; ++dx) {
-            if (dx == 0 && dy == 0) {
-                continue;
-            }
-            fn(dx, dy);
-        }
-    }
-}
-
 int ResolveWidth(int canvas_width, int origin_x, const ListItemStyle& style)
 {
     if (style.width > 0) {
