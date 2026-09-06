@@ -1119,7 +1119,8 @@ void HandleTimezoneEvent(const timezone_service::Event& event, void*)
                  ? "--:--"
                  : event.snapshot.runtime.current_time.c_str());
 
-    const esp_err_t lock_screen_err = lock_screen_runtime::SyncClockState(true);
+    const esp_err_t lock_screen_err =
+        lock_screen_runtime::SyncClockState(s_startup_complete.load(std::memory_order_relaxed));
     if (lock_screen_err != ESP_OK && lock_screen_err != ESP_ERR_INVALID_STATE) {
         ESP_LOGW(kTag, "Lock screen clock update after time event failed: %s",
                  esp_err_to_name(lock_screen_err));
@@ -1573,11 +1574,14 @@ void HandleRecordingArchiveEvent(const recording_archive_service::Event& event, 
     const int pending = event.snapshot.pending_transcription_count;
     if (s_last_status_bar_pending_transcription_count.exchange(pending, std::memory_order_relaxed) !=
         pending) {
-        const esp_err_t status_bar_err = status_bar_runtime::UpdateDisplayStateAndRequestRefresh(
-            display_service::RefreshRequest{
-                .refresh_mode = display_service::RefreshMode::kPartial,
-                .scope = display_service::RefreshScope::kRegion,
-            });
+        const esp_err_t status_bar_err =
+            s_startup_complete.load(std::memory_order_relaxed)
+                ? status_bar_runtime::UpdateDisplayStateAndRequestRefresh(
+                      display_service::RefreshRequest{
+                          .refresh_mode = display_service::RefreshMode::kPartial,
+                          .scope = display_service::RefreshScope::kRegion,
+                      })
+                : status_bar_runtime::UpdateDisplayState();
         if (status_bar_err != ESP_OK && status_bar_err != ESP_ERR_INVALID_STATE) {
             ESP_LOGW(kTag, "Status bar update after archive event failed: %s",
                      esp_err_to_name(status_bar_err));
