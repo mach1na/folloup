@@ -468,6 +468,41 @@ void NotifyMotionDetected()
     NotifyUserActivity(ActivitySource::kMotion);
 }
 
+bool ForceDisplaySleep()
+{
+    Action action = Action::kNone;
+    Snapshot snapshot = {};
+    const int64_t now_us = esp_timer_get_time();
+
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        EnsureActivityTimestampLocked(now_us);
+        if (!s_initialized || !s_settings.enabled || s_stage != Stage::kAwake ||
+            s_settings.display_sleep_timeout_seconds == 0) {
+            return false;
+        }
+
+        if (TransitionToLocked(Stage::kDisplaySleeping, Action::kEnterDisplaySleep,
+                               TransitionReason::kLockScreen, now_us)) {
+            action = Action::kEnterDisplaySleep;
+            // Arm the inactivity clock from this moment (rather than from whenever
+            // stillness happened to last be detected) so the usual light-sleep
+            // timeout still elapses on its own, counted from the lock press.
+            s_inactivity_armed = true;
+            s_inactivity_started_us = now_us;
+            snapshot = BuildSnapshotLocked(now_us);
+        }
+    }
+
+    if (action == Action::kNone) {
+        return false;
+    }
+
+    ESP_LOGI(kTag, "Forced display sleep entry requested (lock screen)");
+    DispatchEvent(action, TransitionReason::kLockScreen, snapshot);
+    return true;
+}
+
 const char* StageName(Stage stage)
 {
     switch (stage) {
@@ -513,6 +548,8 @@ const char* TransitionReasonName(TransitionReason reason)
             return "interaction";
         case TransitionReason::kSettingsChange:
             return "settings_change";
+        case TransitionReason::kLockScreen:
+            return "lock_screen";
         default:
             return "unknown";
     }

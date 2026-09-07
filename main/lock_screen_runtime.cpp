@@ -7,6 +7,7 @@
 #include <string>
 #include <utility>
 
+#include "device_sleep_service.h"
 #include "display_service.h"
 #include "esp_check.h"
 #include "esp_log.h"
@@ -125,6 +126,44 @@ void OnClockTimer(void*)
     (void)SyncClockState(false);
 }
 
+esp_err_t HideImpl(bool waking)
+{
+    display_service::ScreenId restore_screen = display_service::ScreenId::kHome;
+    bool was_active = false;
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (!s_initialized) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (!s_active) {
+            return ESP_OK;
+        }
+        was_active = s_active;
+        s_active = false;
+        restore_screen = s_restore_screen;
+    }
+
+    const esp_err_t status_bar_err = status_bar_runtime::UpdateDisplayState();
+    if (status_bar_err != ESP_OK && status_bar_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Status bar update before lock screen hide failed: %s",
+                 esp_err_to_name(status_bar_err));
+    }
+    // Waking directly to the restore screen must go through WakeDisplayToScreen, not
+    // SetCurrentScreen: the panel is still asleep at this point, and SetCurrentScreen's
+    // change would just queue behind the separate wake call with no ordering guarantee
+    // between the two, risking a redundant full refresh of the lock screen first.
+    const esp_err_t err =
+        waking ? display_service::WakeDisplayToScreen(restore_screen)
+              : display_service::SetCurrentScreen(restore_screen,
+                                                   display_service::RefreshMode::kFull,
+                                                   "lock_screen_hide");
+    if (err != ESP_OK) {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_active = was_active;
+    }
+    return err;
+}
+
 }  // namespace
 
 esp_err_t Init()
@@ -192,40 +231,27 @@ esp_err_t Show()
     if (err != ESP_OK) {
         std::lock_guard<std::mutex> lock(s_mutex);
         s_active = already_active;
+        return err;
     }
+
+    // Locking is meant to put the display to sleep immediately rather than sit lit
+    // until the normal inactivity timer elapses on its own. Light sleep (which is what
+    // actually drops Wi-Fi) still follows its usual configured timeout from this point
+    // -- it isn't forced -- since it costs a real Wi-Fi reassociation and a forced SD
+    // remount on wake, which a quick lock/unlock cycle shouldn't have to pay every time.
+    // No-op if already asleep or auto-sleep is disabled/misconfigured.
+    (void)device_sleep_service::ForceDisplaySleep();
     return err;
 }
 
 esp_err_t Hide()
 {
-    display_service::ScreenId restore_screen = display_service::ScreenId::kHome;
-    bool was_active = false;
-    {
-        std::lock_guard<std::mutex> lock(s_mutex);
-        if (!s_initialized) {
-            return ESP_ERR_INVALID_STATE;
-        }
-        if (!s_active) {
-            return ESP_OK;
-        }
-        was_active = s_active;
-        s_active = false;
-        restore_screen = s_restore_screen;
-    }
+    return HideImpl(false);
+}
 
-    const esp_err_t status_bar_err = status_bar_runtime::UpdateDisplayState();
-    if (status_bar_err != ESP_OK && status_bar_err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(kTag, "Status bar update before lock screen hide failed: %s",
-                 esp_err_to_name(status_bar_err));
-    }
-    const esp_err_t err = display_service::SetCurrentScreen(restore_screen,
-                                                            display_service::RefreshMode::kFull,
-                                                            "lock_screen_hide");
-    if (err != ESP_OK) {
-        std::lock_guard<std::mutex> lock(s_mutex);
-        s_active = was_active;
-    }
-    return err;
+esp_err_t HideWaking()
+{
+    return HideImpl(true);
 }
 
 esp_err_t Toggle()

@@ -1637,6 +1637,27 @@ esp_err_t WakeDisplay()
     return ESP_OK;
 }
 
+esp_err_t WakeDisplayToScreen(ScreenId screen)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    std::lock_guard<std::mutex> lock(s_panel_mutex);
+    s_current_screen.store(screen, std::memory_order_relaxed);
+    if (!s_display_sleeping) {
+        return RefreshCurrentScreenLocked(RefreshMode::kFull);
+    }
+
+    ESP_RETURN_ON_ERROR(RefreshCurrentScreenLocked(RefreshMode::kFull),
+                        kTag,
+                        "display wake-to-screen refresh failed");
+    s_display_sleeping = false;
+    ESP_LOGI(kTag, "Display woke directly to screen=%d with full refresh",
+             static_cast<int>(screen));
+    return ESP_OK;
+}
+
 esp_err_t RecoverAfterLightSleep()
 {
     if (!s_initialized) {

@@ -6,6 +6,7 @@
 #include "device_sleep_runtime.h"
 #include "device_sleep_service.h"
 #include "esp_log.h"
+#include "lock_screen_runtime.h"
 #include "waveshare_board.h"
 
 namespace power_key_runtime {
@@ -39,6 +40,13 @@ bool ConsumeAsWake()
 {
     const device_sleep_service::Stage stage =
         device_sleep_service::GetSnapshot().runtime.stage;
+    if (stage != device_sleep_service::Stage::kAwake && lock_screen_runtime::IsActive()) {
+        // This is the deliberate lock/unlock key, so the wake it causes should land
+        // straight on the restore screen instead of just redrawing the lock screen and
+        // needing a second press to actually unlock (unlike e.g. the ACTION button,
+        // which is also a light-sleep wake source but has no lock-toggle meaning).
+        device_sleep_runtime::RequestUnlockOnWake();
+    }
     device_sleep_runtime::NotifyUserActivity();
     if (stage == device_sleep_service::Stage::kAwake) {
         return false;
