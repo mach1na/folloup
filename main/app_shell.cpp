@@ -1561,6 +1561,15 @@ void HandleRecordingArchiveEvent(const recording_archive_service::Event& event, 
         ESP_LOGW(kTag, "Dashboard update after archive event failed: %s", esp_err_to_name(err));
     }
 
+    // Keeps the lock screen's pending-todo summary current regardless of which screen is
+    // active, so it's already correct by the time the device is actually locked rather than
+    // being computed (with a blocking SD scan) at lock time.
+    const esp_err_t todo_summary_err = lock_screen_runtime::RefreshTodoSummary();
+    if (todo_summary_err != ESP_OK && todo_summary_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Lock screen todo summary refresh failed: %s",
+                 esp_err_to_name(todo_summary_err));
+    }
+
     // The archive changed (recording saved / deleted / re-tagged / follow-up toggled). If one of
     // the archive-backed feature pages is on screen, re-sync it so it does not show stale data.
     // Non-active pages re-sync on entry (ShowXScreen), so only the current screen is refreshed.
@@ -1599,6 +1608,15 @@ void InitRecordingArchiveService()
 {
     recording_archive_service::SetEventHandler(HandleRecordingArchiveEvent, nullptr);
     recording_archive_service::Init();
+
+    // Seed the lock screen's pending-todo summary once at boot, so it's already correct the
+    // first time the device is locked rather than showing an empty/stale cache until the
+    // first archive-changed event happens to fire.
+    const esp_err_t todo_summary_err = lock_screen_runtime::RefreshTodoSummary();
+    if (todo_summary_err != ESP_OK && todo_summary_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Initial lock screen todo summary failed: %s",
+                 esp_err_to_name(todo_summary_err));
+    }
 }
 
 void InitGeminiService()

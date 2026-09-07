@@ -758,7 +758,7 @@ display-sleep case gets. Verified on-device for the display-sleep case:
 Craig confirmed the `PWR` wake press now lands on Home directly. The
 light-sleep path is reasoned from the code, not separately observed.
 
-## Replace the lock screen's full-screen clock with a todo summary
+## ~~Replace the lock screen's full-screen clock with a todo summary~~ — resolved
 
 `epaper_ui::LockScreenState` (`include/epaper_ui/lock_screen.h`) and
 `DrawLockScreen` currently only carry/render `hour_text`/`minute_text`/
@@ -776,3 +776,113 @@ page) — this would need a lock-screen-specific summary view sourced from
 the same data, plus deciding how much of the clock (if any) to keep
 alongside it. Own branch/PR; needs a design pass on what the summary
 actually shows (counts? titles? both?) before implementing.
+
+Design settled through a wireframe discussion before any code was written
+(see chat history, not reproduced here): drop the clock entirely (`hour_text`/
+`minute_text` removed from `LockScreenState`, since it's the part that
+actually goes stale) and keep only weekday+date on one line. Below a thin
+divider, a "TO-DO - N PENDING" heading (or "TO-DO" + "All caught up" when
+N=0), then up to the first 3 pending todos as checkbox rows -- **follow-up
+flagged todos surface first** (`RecordingMetadata::follow_up`, an existing
+cross-tag flag independent of `tag`/`completed`, already toggleable from the
+Todos page's own item-actions menu), each newest-first within its group.
+Each row shows the *full* transcript text (untruncated, since 10s recordings
+keep them short) at the default `kBody` role, word-wrapped, capped to 3
+lines with an ellipsis on overflow -- not the single-line-truncated "title"
+the Todos page itself uses. If there are more than 3 pending, one line below
+them reads "+N more pending" (title-less; the design deliberately doesn't
+fall back to a partial list once past the cap). A `kLock` icon (an asset
+that already existed, previously used only for private-Wi-Fi-network rows)
+renders at 2x scale, centered near the bottom of the screen, as a persistent
+"this is locked" anchor now that nothing else on the screen visually says so.
+
+Fixed: `LockScreenState` gained `pending_todo_titles`
+(`std::vector<std::string>`, the top ≤3 already selected/prioritized) and
+`pending_todo_count` (the true total). `DrawLockScreen`
+(`components/epaper_ui/lock_screen.cpp`) was rewritten for the new layout,
+and in the process migrated off its own long-stale local duplicates of
+`DrawPortraitPixel`/`ShouldDrawBlackForTone`/`DrawPortraitMonoAsset` onto
+the shared `render_utils.h` versions -- worth flagging on its own: the local
+`ShouldDrawBlackForTone` still had the *old*, buggy gray-dither lattice
+(`(x%2==0)&&(y%2==0)`) that caused the WiFi-page banding fixed elsewhere
+(see the "SSD1677 partial refresh" note in `docs/auto-sleep.md`'s history) --
+`render_utils.h`'s version already carries that fix
+(`(x+y)&3)==0`), so this migration was a genuine bug fix for any gray-toned
+content on this screen, not just a dedup.
+
+The actual pending-todo data comes from `recording_archive_service::
+ListRecordings()`, which does blocking SD I/O -- new `lock_screen_runtime::
+RefreshTodoSummary()` does that scan, filters to `tag==kTask && !completed`,
+partitions/sorts as above, and caches the result in `s_state`, deliberately
+**not** called from `Show()` (which runs on the PMIC/power-key interrupt
+task -- blocking that task on an SD scan would be a real responsiveness
+risk for a task that also has to notice a shutdown long-press). Instead
+`main/app_shell.cpp`'s `HandleRecordingArchiveEvent()` calls it
+unconditionally on every archive-changed event (mirroring how
+`dashboard_page_runtime::SyncFromService` already runs unconditionally
+there), plus once at boot from `InitRecordingArchiveService()` to seed it —
+so by the time a user actually locks the device, the summary is already
+current rather than being computed at lock time.
+
+Also promoted `list_item_header.cpp`'s private `FitLabelText` (truncate-
+with-ellipsis) helper to the shared `render_utils.h`, since the new lock
+screen needed the exact same operation. Doing so surfaced that
+`FitLabelText` was independently reimplemented in **five** places
+(`list_item.cpp`, `list_item_header.cpp`, `network_item.cpp`,
+`timeline_list.cpp`, `select_item.cpp`), two with a different parameter
+order than the other three. Removed the two whose signature was an exact
+match (`list_item.cpp`, `timeline_list.cpp`) once they collided with the
+newly-shared version (the build caught this immediately as an ambiguous
+overload); left `network_item.cpp`/`select_item.cpp` alone since fixing
+their differing parameter order was out of scope for this change. See the
+new item below to finish that dedup.
+
+On-device testing caught a real bug the build couldn't: recording an item
+and tagging it as a todo crashed the device (before the transcript dialogue
+appeared) with `***ERROR*** A stack overflow in task input_callbacks has
+been detected`. `main/input_callback_dispatcher.cpp`'s `input_callbacks`
+task has a 4096-word stack sized for lightweight callback dispatch — the
+recording-save flow already runs its archive-write + `NotifyHandler()` ->
+`HandleRecordingArchiveEvent()` chain on it, and `RefreshTodoSummary()`'s
+synchronous `ListRecordings()` scan plus this file's own filtering/sorting
+on top of that was enough to overflow it. `HandleRecordingArchiveEvent()`
+can run on genuinely different caller tasks depending on what triggered
+it (a dedicated `arc_refresh` worker sometimes, `input_callbacks` other
+times), so tuning that one task's stack size would have been fragile.
+
+Fixed by making `RefreshTodoSummary()` fire-and-forget: it now kicks off a
+dedicated one-shot task (`lockscr_todos`, 6144 words, `kPriorityStorage` on
+`kSystemCore` — mirroring `recording_archive_service::RefreshAsync()`'s own
+pattern) that does the actual scan/filter/sort/cache-update/push, guarded
+by an atomic in-flight flag so a call that lands while one is already
+running is a harmless no-op rather than a second concurrent scan. The
+public function's contract changed accordingly (now non-blocking, safe
+from any caller stack) — see the updated doc comment in
+`lock_screen_runtime.h`. Side benefit: the boot-time seed call in
+`InitRecordingArchiveService()` no longer adds a blocking SD scan to the
+pre-first-paint startup path either.
+
+Verified: clean build, zero warnings, flashed, and Craig confirmed the
+same record-then-tag-as-todo steps that crashed before no longer do. The
+recording saved during the original crash (SD write completes before the
+crash point, so it survived) was left without a transcript, since the
+crash landed after the save but before transcription kicked off, and
+Gemini was already authenticated at the time so it isn't a
+`pending_transcription` auto-retry case — needs a manual Transcribe from
+its Details page, a one-off cleanup rather than a bug. The visual layout
+itself (spacing/wrapping/icon placement) has not yet been separately
+checked against the physical panel.
+
+## `FitLabelText` still independently reimplemented in two places
+
+While adding the lock screen todo summary above, `list_item_header.cpp`'s
+private `FitLabelText` (truncate-with-ellipsis) was promoted to the shared
+`render_utils.h`, and two other exact-signature duplicates
+(`list_item.cpp`, `timeline_list.cpp`) were removed once they collided with
+it. `network_item.cpp` and `select_item.cpp` still have their own copies,
+each with the parameters in a different order (`text, role, max_width`
+instead of `render_utils.h`'s `role, text, max_width`) — which is exactly
+why they *didn't* collide and get caught by the same build error. Finishing
+the dedup means normalizing one of the two parameter orders and updating
+call sites in whichever files change. Not attempted here to keep that
+change scoped to what the lock screen feature actually needed.

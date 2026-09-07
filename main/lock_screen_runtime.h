@@ -18,6 +18,17 @@ esp_err_t Toggle();
 esp_err_t RequestRefresh(
     display_service::RefreshMode refresh_mode = display_service::RefreshMode::kPartial);
 esp_err_t SyncClockState(bool request_refresh_if_active);
+// Kicks off (on its own dedicated task, never the caller's) a re-scan of the recording
+// archive and recomputes the pending-todo summary shown on the lock screen: up to three
+// pending todos (follow-up flagged ones first, then newest first), plus the true total
+// pending count. Non-blocking -- safe to call from any task, including one with a small
+// stack (an archive-changed event can fire from very different callers). Pushes the result
+// into the lock screen's state once the scan completes and, if the lock screen is
+// currently active, requests a partial refresh -- so by the time a user actually locks
+// the device, the summary is already current rather than being computed at lock time. A
+// call while a refresh is already in flight is a no-op (the pending one will see current
+// state), not an error.
+esp_err_t RefreshTodoSummary();
 
 }  // namespace lock_screen_runtime
 

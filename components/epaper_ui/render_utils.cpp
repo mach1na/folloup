@@ -119,6 +119,27 @@ std::vector<std::string> WrapTextToWidth(design::TypographyRole role,
     return lines;
 }
 
+std::string FitLabelText(design::TypographyRole role, const std::string& text, int max_width)
+{
+    if (text.empty() || max_width <= 0) {
+        return {};
+    }
+    if (MeasureText(role, text) <= max_width) {
+        return text;
+    }
+    constexpr const char* kEllipsis = "...";
+    if (MeasureText(role, kEllipsis) > max_width) {
+        return {};
+    }
+    for (size_t length = text.size(); length > 0; --length) {
+        const std::string candidate = text.substr(0, length) + kEllipsis;
+        if (MeasureText(role, candidate) <= max_width) {
+            return candidate;
+        }
+    }
+    return kEllipsis;
+}
+
 bool ShouldDrawBlackForTone(int x, int y, uint8_t tone)
 {
     if (tone <= design::color::kGray1) {

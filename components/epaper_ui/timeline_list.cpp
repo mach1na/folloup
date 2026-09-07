@@ -119,27 +119,6 @@ UiRect MeasureLabelOuterBounds(int origin_x, int origin_y, const std::string& la
     return {chip.x - border, chip.y - border, chip.width + (2 * border), chip.height + (2 * border)};
 }
 
-std::string FitLabelText(design::TypographyRole role, const std::string& text, int max_width)
-{
-    if (text.empty() || max_width <= 0) {
-        return {};
-    }
-    if (MeasureText(role, text) <= max_width) {
-        return text;
-    }
-    constexpr const char* kEllipsis = "...";
-    if (MeasureText(role, kEllipsis) > max_width) {
-        return {};
-    }
-    for (size_t length = text.size(); length > 0; --length) {
-        const std::string candidate = text.substr(0, length) + kEllipsis;
-        if (MeasureText(role, candidate) <= max_width) {
-            return candidate;
-        }
-    }
-    return kEllipsis;
-}
-
 std::string BuildStickyFooterText(const TimelineListState& state, int group_index, int item_count)
 {
     if (item_count <= 0) {
