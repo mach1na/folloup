@@ -31,6 +31,76 @@ The device moves through three stages:
 Motion or user interaction wakes the display from `display_sleeping`.
 `ACTION` / `GPIO0` or the PMIC interrupt wakes the ESP32-S3 from `light_sleeping`.
 
+## Lock Screen Forces Display Sleep
+
+Locking the device (`lock_screen_runtime::Show()`, wired to the `PWR`
+short-press gesture) calls `device_sleep_service::ForceDisplaySleep()` right
+after the lock screen is shown, tagged with `TransitionReason::kLockScreen`.
+From `Stage::kAwake`, and only while auto-sleep and the display-sleep stage
+are both enabled, this transitions straight to `display_sleeping` by
+dispatching the same `Action::kEnterDisplaySleep` event (and therefore the
+same hardware sequence) a normal inactivity timeout would, just without the
+wait. This exists so a locked device carried in a pocket/bag goes dark right
+away instead of sitting lit for the full display-sleep timeout window.
+
+Light sleep is deliberately *not* forced along with it — it still follows
+its own configured `light_sleep_timeout_seconds` from the moment of
+locking (`ForceDisplaySleep()` arms the inactivity clock itself, so the
+normal monitor tick carries it into `light_sleeping` without needing a
+fresh stillness detection first). Forcing light sleep on every lock would
+mean paying its cost (Wi-Fi teardown/reassociation, plus a forced SD-card
+remount on wake — see Light Sleep below) on every quick lock/unlock cycle,
+not just on a lock that's actually left alone long enough to matter.
+
+Because of this, while the lock screen is active, `main/
+device_sleep_runtime.cpp`'s motion classifier drops
+motion-sourced wake notifications instead of forwarding them to
+`device_sleep_service::NotifyMotionDetected()`. This matters for two
+reasons: it stops IMU noise from carrying the locked device from waking
+`display_sleeping` straight back to `awake` (per `motion_wake_enabled`
+below), and — since *any* call into `NotifyUserActivity()` unconditionally
+resets the inactivity clock armed above, regardless of whether it causes a
+wake — it stops that same jostling from continually restarting the
+light-sleep countdown and preventing it from ever elapsing. Only a real
+button press wakes a locked+asleep device — the `PWR` key's
+`power_key_runtime.cpp::ConsumeAsWake()` (and, for `ACTION`, the
+wake-gesture suppression described in Light Sleep below) means that first
+press doesn't also run its normal action a second time.
+
+### Waking a locked device goes straight to the restore screen
+
+A `PWR` press that wakes a locked+asleep device also unlocks it straight to
+the restore screen (usually Home) in the same refresh, rather than just
+redrawing the lock screen and requiring a second, separate press to
+actually unlock. `ConsumeAsWake()` calls `device_sleep_runtime::
+RequestUnlockOnWake()` before the `NotifyUserActivity()` that wakes the
+device, which sets a one-shot flag consumed by whichever wake path actually
+runs — `WakeDisplayRespectingLock()` for a display-sleep wake, or
+`RecoverDisplayRespectingLock()` for a light-sleep wake — both in
+`main/device_sleep_runtime.cpp`. If the flag is set (and the lock screen is
+still active), that path calls `lock_screen_runtime::HideWaking()`
+instead of the plain `WakeDisplay()`/`RecoverAfterLightSleep()`, which in
+turn calls the new `display_service::WakeDisplayToScreen()` to set the
+current screen and wake the panel in one atomic, single-refresh operation
+(see that function's declaration for why: doing it as two separate calls —
+change the screen, then wake — races between the async display command
+queue and this direct wake path, with no ordering guarantee between them).
+
+The flag is scoped to the specific press that requested it (consumed on
+first use) so that a *different* wake source — most notably the `ACTION`
+button, which is also a light-sleep wake source but has no lock-toggle
+meaning — still just wakes to the lock screen rather than silently
+unlocking. For the light-sleep case specifically, the interrupt-decoding
+task that calls `ConsumeAsWake()` runs at a lower priority
+(`kInterruptTaskPriority` = 2 in `axp2101.cc`) than the auto-sleep task
+running the light-sleep wake/restore sequence (`kPriorityAppSleep` = 4), so
+in practice that sequence normally finishes — and `RecoverDisplayRespectingLock()`
+normally already ran — before `ConsumeAsWake()` gets scheduled to set the
+flag; the end result is still correct (the existing `ConsumeAsWake()` /
+`HandlePowerKeyPress()` path notices the device is already awake and runs
+the normal lock-toggle handler instead), just via a redraw-then-redraw
+rather than the single clean refresh the display-sleep case gets.
+
 ## IMU Inactivity Detection
 
 The runtime samples `imu_service::ReadSample(...)` every `200 ms` and compares

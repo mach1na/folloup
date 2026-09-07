@@ -19,6 +19,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "imu_service.h"
+#include "lock_screen_runtime.h"
 #include "recording_service.h"
 #include "status_bar_runtime.h"
 #include "waveshare_board_config.h"
@@ -72,6 +73,7 @@ void* s_shutdown_pending_context = nullptr;
 std::atomic<bool> s_wake_gesture_active = false;
 std::atomic<bool> s_wake_gesture_long_press = false;
 std::atomic<int64_t> s_wake_gesture_deadline_us = 0;
+std::atomic<bool> s_unlock_on_wake_requested = false;
 bool s_have_last_motion_sample = false;
 AccelSampleMg s_last_motion_sample = {};
 int64_t s_quiet_started_us = 0;
@@ -269,11 +271,37 @@ esp_err_t WaitForPowerButtonReleased()
     return ESP_ERR_TIMEOUT;
 }
 
+// Consumes the request set by RequestUnlockOnWake(), if any. Only the specific press
+// that requested it should skip past the lock screen -- e.g. the ACTION button is also
+// a light-sleep wake source, and a wake it causes must still leave the lock screen
+// showing rather than silently unlocking to Home.
+bool ConsumeUnlockOnWakeRequest()
+{
+    return s_unlock_on_wake_requested.exchange(false, std::memory_order_relaxed) &&
+           lock_screen_runtime::IsActive();
+}
+
+// An authorized wake while the lock screen is showing must land on the restore screen
+// (usually Home), not redraw the lock screen and require a second press to actually
+// unlock -- WakeDisplayToScreen does that in one refresh instead of two (see its
+// declaration).
+esp_err_t WakeDisplayRespectingLock()
+{
+    return ConsumeUnlockOnWakeRequest() ? lock_screen_runtime::HideWaking()
+                                        : display_service::WakeDisplay();
+}
+
+esp_err_t RecoverDisplayRespectingLock()
+{
+    return ConsumeUnlockOnWakeRequest() ? lock_screen_runtime::HideWaking()
+                                        : display_service::RecoverAfterLightSleep();
+}
+
 esp_err_t RestoreAfterLightSleep()
 {
     ESP_LOGI(kTag, "Light-sleep restore begin");
     LogLightSleepPins("before restore");
-    esp_err_t err = display_service::RecoverAfterLightSleep();
+    esp_err_t err = RecoverDisplayRespectingLock();
     // The SDMMC card loses its state across light sleep; remount it so the first
     // post-wake read doesn't hit a stale card (sdmmc 0x107 timeout).
     const esp_err_t storage_err = storage_service::RecoverAfterLightSleep();
@@ -457,7 +485,7 @@ void ProcessAutoSleepEvent(const device_sleep_service::Event& event)
         case device_sleep_service::Action::kWakeDisplay:
             status_bar_runtime::SetSleepIndicatorVisible(false);
             (void)status_bar_runtime::UpdateDisplayState();
-            err = display_service::WakeDisplay();
+            err = WakeDisplayRespectingLock();
             break;
         case device_sleep_service::Action::kEnterLightSleep:
             err = EnterLightSleep();
@@ -604,6 +632,14 @@ void ClassifyMotionSample(const AccelSampleMg& sample)
         ESP_LOGI(kTag, "Motion detected: sum_delta=%.1fmg max_axis=%.1fmg",
                  static_cast<double>(log_sum_delta),
                  static_cast<double>(log_max_axis_delta));
+        // While locked, motion alone must not wake the display back up -- otherwise
+        // carrying a locked device in a pocket/bag would keep flashing it awake, which
+        // is both a battery drain and defeats the point of forcing sleep on lock. Only
+        // a real button press (an interaction source) may wake it while locked.
+        if (lock_screen_runtime::IsActive()) {
+            ESP_LOGI(kTag, "Motion-triggered wake suppressed: lock screen active");
+            return;
+        }
         device_sleep_service::NotifyMotionDetected();
         return;
     }
@@ -781,6 +817,11 @@ bool ConsumeWakeOnlyPowerButtonEvent(const button_service::ButtonEventInfo& even
     ESP_LOGI(kTag, "Consumed wake-only POWER_OK event=%s",
              ButtonEventName(event.event));
     return true;
+}
+
+void RequestUnlockOnWake()
+{
+    s_unlock_on_wake_requested.store(true, std::memory_order_relaxed);
 }
 
 }  // namespace device_sleep_runtime

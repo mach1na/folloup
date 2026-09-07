@@ -124,6 +124,14 @@ esp_err_t RefreshCurrentScreen(RefreshMode refresh_mode = RefreshMode::kPartial)
 esp_err_t EnterDisplaySleep();
 esp_err_t EnterLightSleep();
 esp_err_t WakeDisplay();
+// Wakes the panel directly into `screen`, in one full refresh, instead of the panel's
+// pre-sleep screen. Setting the current screen before waking (the way `SetCurrentScreen`
+// does) would race against this call: the async display command queue and this direct,
+// mutex-guarded wake path are two different subsystems, and there's no ordering
+// guarantee between "queue a screen change" and "wake and refresh now" -- a losing race
+// draws the pre-sleep screen first and the intended one a moment later as a second,
+// redundant full refresh. This does both atomically under the same lock.
+esp_err_t WakeDisplayToScreen(ScreenId screen);
 esp_err_t RecoverAfterLightSleep();
 bool IsRefreshInProgress();
 

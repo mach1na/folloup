@@ -634,7 +634,7 @@ genuinely load-bearing for button focus, just no longer touch-reachable.
 Verified: clean build with zero warnings, clean on-device boot with the same
 healthy display-before-storage ordering as the previous fix.
 
-## Lock screen should trigger display/light sleep on entry
+## ~~Lock screen should trigger display/light sleep on entry~~ — resolved
 
 Currently, locking the device (`lock_screen_runtime::Toggle()`, wired to
 the POWER_OK short-press gesture in `app_shell.cpp:1398-1399`) only swaps
@@ -651,7 +651,29 @@ inactivity timers. Needs a decision on exactly which stage(s) to force and
 whether `lock_screen_runtime::Show()` should call into
 `device_sleep_service` directly or through `device_sleep_runtime`.
 
-## Waking from a locked+asleep device should only be triggered by a button press
+Fixed: added `device_sleep_service::ForceDisplaySleep()`, which — only from
+`Stage::kAwake` and only while auto-sleep and the display-sleep stage are
+both enabled — transitions straight to `kDisplaySleeping` by dispatching
+`Action::kEnterDisplaySleep` the same way the normal inactivity timer
+would, tagged with a new `TransitionReason::kLockScreen`. Light sleep is
+deliberately *not* forced along with it (that would mean paying its
+Wi-Fi-teardown/SD-remount cost on every lock/unlock, not just a lock that's
+actually left alone) — instead `ForceDisplaySleep()` arms the inactivity
+clock itself (`s_inactivity_armed`/`s_inactivity_started_us`, from the lock
+moment), so the existing monitor tick still carries it into `kLightSleeping`
+on its own after the usual configured `light_sleep_timeout_seconds`, without
+needing a fresh stillness detection first. The dispatch goes through the
+existing event queue/`device_sleep_runtime` handler, so the real hardware
+sequence (sleep-indicator repaint, panel sleep) is identical to a normal
+timeout-driven entry; forcing it just skips the wait. Went with
+`lock_screen_runtime::Show()` calling `device_sleep_service` directly
+(non-blocking — the dispatch only enqueues onto `device_sleep_runtime`'s
+auto-sleep task) rather than routing through `device_sleep_runtime`, matching
+how `power_key_runtime.cpp`/`app_shell.cpp` already query
+`device_sleep_service::GetSnapshot()` directly. Verified on-device: Craig
+confirmed pressing `PWR` to lock puts the display to sleep immediately.
+
+## ~~Waking from a locked+asleep device should only be triggered by a button press~~ — resolved
 
 Related to the item above: once locking forces sleep, motion alone
 shouldn't wake the display back up while locked — pocket/bag handling of a
@@ -665,6 +687,76 @@ when `motion_wake_enabled` is set) — this item wants that same exclusion
 to also apply to `Stage::kDisplaySleeping` specifically while the lock
 screen is the active/restore screen, so only a real button press (an
 interaction source) can wake the display when locked, regardless of stage.
+
+Fixed: `device_sleep_service` stays board/product-agnostic (it has no
+notion of the lock screen), so the exclusion lives in
+`main/device_sleep_runtime.cpp`'s `ClassifyMotionSample` instead — before
+forwarding a detected-motion transition to
+`device_sleep_service::NotifyMotionDetected()`, it now checks
+`lock_screen_runtime::IsActive()` and drops the notification (just logging
+it) when locked, regardless of which sleep stage the device is currently
+in. This closes two gaps the force-display-sleep fix above would otherwise
+leave open: without it, IMU noise from pocket/bag motion would (a), with
+the default `motion_wake_enabled`, keep waking `Stage::kDisplaySleeping`
+straight back to `kAwake`, and (b) — since *any* call into
+`NotifyUserActivity()` unconditionally resets the inactivity clock, whether
+or not it causes a wake — keep restarting the light-sleep countdown that
+fix armed, so it could never elapse while the device was being carried.
+Real button presses are unaffected — they still wake the device via the
+existing `ConsumeAsWake()` (`power_key_runtime.cpp`) / wake-gesture paths.
+(As first shipped, that wake press then required a second, separate press
+to actually unlock; see the follow-up below — fixed the same day after
+on-device testing showed the lock screen was left showing after the wake
+press.)
+
+## ~~Waking a locked device required a second press to actually unlock~~ — resolved
+
+Found on-device the same day as the two items above: `ConsumeAsWake()`
+correctly consumed the waking `PWR` press so it wouldn't also toggle the
+lock, but that meant the press that woke the device from `display_sleeping`
+just redrew the *lock screen* (via the normal `Action::kWakeDisplay` ->
+`display_service::WakeDisplay()` path) — actually unlocking still needed a
+second, separate press to run `HandlePowerKeyPress()`'s `lock_screen_
+runtime::Toggle()`. Craig wanted the wake press itself to land straight on
+Home.
+
+Fixed with three pieces: (1) a new `device_sleep_runtime::
+RequestUnlockOnWake()` one-shot flag, set by `ConsumeAsWake()` (`main/
+power_key_runtime.cpp`) immediately before the `NotifyUserActivity()` that
+wakes the device, but only when the lock screen is active — scoping the
+behavior to the deliberate lock/unlock key so a different wake source (the
+`ACTION` button is also a light-sleep wake source, but has no lock-toggle
+meaning) still just wakes to the lock screen; (2) `WakeDisplayRespectingLock()`/
+`RecoverDisplayRespectingLock()` (`main/device_sleep_runtime.cpp`) consume
+that flag in the `kWakeDisplay` action and in `RestoreAfterLightSleep()`
+respectively, calling the new `lock_screen_runtime::HideWaking()` instead
+of the plain wake call when it's set; (3) a new `display_service::
+WakeDisplayToScreen(ScreenId)`, since setting the current screen (the way
+`Hide()`'s `SetCurrentScreen()` does) and then separately waking the panel
+would race — the async display command queue and the direct,
+mutex-guarded wake path have no ordering guarantee between them, and a
+losing race draws the lock screen first and the intended screen a moment
+later as a second, redundant full refresh. `WakeDisplayToScreen` sets the
+screen and does the one wake-refresh atomically under the same lock, so
+`HideWaking()` (`main/lock_screen_runtime.cpp`, sharing its body with
+`Hide()` via a new internal `HideImpl(bool waking)`) produces exactly one
+full refresh, directly to the restore screen.
+
+For the light-sleep-wake case specifically, the fix is best-effort rather
+than guaranteed: the AXP2101 interrupt-decoding task that calls
+`ConsumeAsWake()` runs at a lower FreeRTOS priority
+(`kInterruptTaskPriority` = 2 in `components/axp2101/axp2101.cc`) than the
+auto-sleep task running the light-sleep wake/restore sequence
+(`kPriorityAppSleep` = 4), so in practice the restore sequence — and
+therefore `RecoverDisplayRespectingLock()`'s check — normally runs to
+completion before `ConsumeAsWake()` gets scheduled to set the flag. The end
+result is still correct in that case (the pre-existing `ConsumeAsWake()` /
+`HandlePowerKeyPress()` path notices the device is already awake by the
+time it runs and falls through to the normal lock-toggle handler instead),
+just via a redraw-then-redraw rather than the single clean refresh the
+display-sleep case gets. Verified on-device for the display-sleep case:
+Craig confirmed the `PWR` wake press now lands on Home directly. The
+light-sleep path is reasoned from the code, not separately observed.
 
 ## Replace the lock screen's full-screen clock with a todo summary
 

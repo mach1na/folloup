@@ -32,6 +32,16 @@ void NotifyUserActivity();
 void ArmPowerButtonWakeGesture(const char* reason);
 bool ConsumeWakeOnlyPowerButtonEvent(const button_service::ButtonEventInfo& event);
 
+// Marks the display/light-sleep wake this triggers as also authorized to unlock
+// straight to the restore screen (e.g. Home) in the same refresh, instead of the
+// default of just waking the display back up on whatever it already showed (the lock
+// screen). Call immediately before the NotifyUserActivity()/wake that this same press
+// causes. Scoped to the specific press that requested it (consumed by the next wake
+// action dispatch) so that only the deliberate lock/unlock gesture -- not some other
+// wake source, such as the ACTION button also being a light-sleep wake source -- skips
+// straight past the lock screen.
+void RequestUnlockOnWake();
+
 }  // namespace device_sleep_runtime
 
 #endif  // DEVICE_SLEEP_RUNTIME_H_

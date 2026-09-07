@@ -27,6 +27,7 @@ enum class TransitionReason : uint8_t {
     kMotion,
     kInteraction,
     kSettingsChange,
+    kLockScreen,
 };
 
 enum class ActivitySource : uint8_t {
@@ -91,6 +92,7 @@ bool NotifyNoMotionStarted();
 void NotifyUserActivity(ActivitySource source = ActivitySource::kInteraction);
 bool NotifyLightSleepWake(TransitionReason reason = TransitionReason::kInteraction);
 void NotifyMotionDetected();
+bool ForceDisplaySleep();
 
 const char* StageName(Stage stage);
 const char* ActionName(Action action);
