@@ -1,18 +1,25 @@
 #include "lock_screen_runtime.h"
 
+#include <algorithm>
+#include <atomic>
 #include <climits>
-#include <cstdio>
 #include <ctime>
 #include <mutex>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "device_sleep_service.h"
 #include "display_service.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "followup_task_config.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "recording_archive_service.h"
 #include "status_bar_runtime.h"
+#include "timeline_format.h"
 #include "ui_refresh_runtime.h"
 
 namespace lock_screen_runtime {
@@ -21,6 +28,12 @@ namespace {
 constexpr const char* kTag = "LockScreenRuntime";
 constexpr time_t kMinValidEpoch = 1600000000;
 constexpr uint64_t kClockPollPeriodUs = 1000 * 1000;
+constexpr size_t kMaxPendingTodoTitles = 3;
+// Runs on its own dedicated task rather than whatever caller triggered RefreshTodoSummary()
+// (an archive-changed event can fire from very different stack budgets -- e.g. the 4096-word
+// input_callbacks dispatcher used by the recording-save flow, which a full ListRecordings()
+// scan plus this file's own filtering/sorting on top overflowed).
+constexpr uint32_t kTodoSummaryTaskStackWords = 6144;
 
 std::mutex s_mutex;
 bool s_initialized = false;
@@ -28,6 +41,7 @@ bool s_active = false;
 display_service::ScreenId s_restore_screen = display_service::ScreenId::kHome;
 esp_timer_handle_t s_clock_timer = nullptr;
 uint32_t s_last_minute_key = UINT_MAX;
+std::atomic<bool> s_todo_summary_refresh_in_flight = false;
 epaper_ui::LockScreenState s_state = {};
 
 uint32_t BuildMinuteKey(time_t now)
@@ -38,13 +52,9 @@ uint32_t BuildMinuteKey(time_t now)
     return static_cast<uint32_t>(now / 60);
 }
 
-int FormatHour12(int hour24)
-{
-    const int hour12 = hour24 % 12;
-    return hour12 == 0 ? 12 : hour12;
-}
-
-bool RebuildClockStateLocked(bool force)
+// Rebuilds only the weekday/date fields of s_state, preserving whatever pending-todo
+// summary is already cached there (that's refreshed independently, by RefreshTodoSummary).
+bool RebuildDateStateLocked(bool force)
 {
     const time_t now = time(nullptr);
     const uint32_t minute_key = BuildMinuteKey(now);
@@ -52,44 +62,51 @@ bool RebuildClockStateLocked(bool force)
         return false;
     }
 
-    epaper_ui::LockScreenState next = {};
+    std::string weekday_text;
+    std::string date_text;
     if (now >= kMinValidEpoch) {
         std::tm local_tm = {};
         localtime_r(&now, &local_tm);
 
-        // Sized for the widest %02d the compiler must assume (an int can print more than
-        // two digits), not just the 00-59 these actually produce. -Os turns the narrower
-        // buffers into a format-truncation error.
-        char hour_text[12] = {};
-        char minute_text[12] = {};
-        char weekday_text[16] = {};
-        char month_text[8] = {};
+        char weekday_buf[16] = {};
+        char month_buf[8] = {};
+        strftime(weekday_buf, sizeof(weekday_buf), "%A", &local_tm);
+        strftime(month_buf, sizeof(month_buf), "%b", &local_tm);
 
-        std::snprintf(hour_text, sizeof(hour_text), "%02d", FormatHour12(local_tm.tm_hour));
-        std::snprintf(minute_text, sizeof(minute_text), "%02d", local_tm.tm_min);
-        strftime(weekday_text, sizeof(weekday_text), "%A", &local_tm);
-        strftime(month_text, sizeof(month_text), "%b", &local_tm);
-
-        next.hour_text = hour_text;
-        next.minute_text = minute_text;
-        next.weekday_text = weekday_text;
-        next.date_text =
-            std::string(month_text) + " " + std::to_string(local_tm.tm_mday) + ", " +
-            std::to_string(local_tm.tm_year + 1900);
+        weekday_text = weekday_buf;
+        date_text = std::string(month_buf) + " " + std::to_string(local_tm.tm_mday) + ", " +
+                   std::to_string(local_tm.tm_year + 1900);
     }
 
-    const bool changed = force || next.hour_text != s_state.hour_text ||
-                         next.minute_text != s_state.minute_text ||
-                         next.weekday_text != s_state.weekday_text ||
-                         next.date_text != s_state.date_text;
+    const bool changed =
+        force || weekday_text != s_state.weekday_text || date_text != s_state.date_text;
     if (!changed) {
         s_last_minute_key = minute_key;
         return false;
     }
 
-    s_state = std::move(next);
+    s_state.weekday_text = std::move(weekday_text);
+    s_state.date_text = std::move(date_text);
     s_last_minute_key = minute_key;
     return true;
+}
+
+int64_t EntryTimestamp(const recording_archive_service::RecordingEntry& entry)
+{
+    return entry.metadata.created_unix_seconds > 0 ? entry.metadata.created_unix_seconds
+                                                   : entry.modified_unix_seconds;
+}
+
+bool IsPendingTodo(const recording_archive_service::RecordingEntry& entry)
+{
+    return entry.metadata.tag == recording_archive_service::RecordingTag::kTask &&
+           !entry.metadata.completed;
+}
+
+std::string TodoDisplayText(const recording_archive_service::RecordingEntry& entry)
+{
+    const std::string trimmed = timeline_format::TrimTranscript(entry.transcript_text);
+    return entry.metadata.has_transcript && !trimmed.empty() ? trimmed : "Audio only todo.";
 }
 
 esp_err_t UpdateDisplayState()
@@ -119,6 +136,67 @@ esp_err_t PushState(epaper_ui::LockScreenState state,
                                             display_service::RefreshMode::kPartial);
     }
     return ESP_OK;
+}
+
+void TodoSummaryWorkerTask(void*)
+{
+    esp_err_t list_status = ESP_OK;
+    const std::vector<recording_archive_service::RecordingEntry> entries =
+        recording_archive_service::ListRecordings(&list_status);
+    if (list_status != ESP_OK) {
+        ESP_LOGW(kTag, "Todo summary refresh: list recordings failed: %s",
+                 esp_err_to_name(list_status));
+    } else {
+        // Follow-up flagged todos surface first (newest first within each group), then rest.
+        std::vector<const recording_archive_service::RecordingEntry*> follow_up_first;
+        std::vector<const recording_archive_service::RecordingEntry*> rest;
+        for (const auto& entry : entries) {
+            if (!IsPendingTodo(entry)) {
+                continue;
+            }
+            (entry.metadata.follow_up ? follow_up_first : rest).push_back(&entry);
+        }
+        const auto by_recency = [](const auto* a, const auto* b) {
+            return EntryTimestamp(*a) > EntryTimestamp(*b);
+        };
+        std::sort(follow_up_first.begin(), follow_up_first.end(), by_recency);
+        std::sort(rest.begin(), rest.end(), by_recency);
+
+        std::vector<std::string> titles;
+        titles.reserve(kMaxPendingTodoTitles);
+        for (auto* group : {&follow_up_first, &rest}) {
+            for (const auto* entry : *group) {
+                if (titles.size() >= kMaxPendingTodoTitles) {
+                    break;
+                }
+                titles.push_back(TodoDisplayText(*entry));
+            }
+        }
+        const int pending_count = static_cast<int>(follow_up_first.size() + rest.size());
+
+        epaper_ui::LockScreenState state = {};
+        bool active = false;
+        bool push = false;
+        {
+            std::lock_guard<std::mutex> lock(s_mutex);
+            if (s_initialized) {
+                s_state.pending_todo_titles = std::move(titles);
+                s_state.pending_todo_count = pending_count;
+                active = s_active;
+                state = s_state;
+                push = true;
+            }
+        }
+        if (push) {
+            const esp_err_t push_err = PushState(state, active, true);
+            if (push_err != ESP_OK) {
+                ESP_LOGW(kTag, "Todo summary push failed: %s", esp_err_to_name(push_err));
+            }
+        }
+    }
+
+    s_todo_summary_refresh_in_flight.store(false, std::memory_order_relaxed);
+    vTaskDelete(nullptr);
 }
 
 void OnClockTimer(void*)
@@ -213,7 +291,7 @@ esp_err_t Show()
                 s_restore_screen = current_screen;
             }
         }
-        (void)RebuildClockStateLocked(true);
+        (void)RebuildDateStateLocked(true);
         s_active = true;
         state = s_state;
     }
@@ -279,7 +357,7 @@ esp_err_t SyncClockState(bool request_refresh_if_active)
         if (!active && !request_refresh_if_active) {
             return ESP_OK;
         }
-        changed = RebuildClockStateLocked(request_refresh_if_active);
+        changed = RebuildDateStateLocked(request_refresh_if_active);
         if (!changed) {
             return ESP_OK;
         }
@@ -287,6 +365,27 @@ esp_err_t SyncClockState(bool request_refresh_if_active)
     }
 
     return PushState(state, active, request_refresh_if_active);
+}
+
+esp_err_t RefreshTodoSummary()
+{
+    if (!s_todo_summary_refresh_in_flight.exchange(true, std::memory_order_relaxed)) {
+        const BaseType_t created = xTaskCreatePinnedToCore(TodoSummaryWorkerTask,
+                                                           "lockscr_todos",
+                                                           kTodoSummaryTaskStackWords,
+                                                           nullptr,
+                                                           followup_task_config::kPriorityStorage,
+                                                           nullptr,
+                                                           followup_task_config::kSystemCore);
+        if (created != pdPASS) {
+            s_todo_summary_refresh_in_flight.store(false, std::memory_order_relaxed);
+            ESP_LOGW(kTag, "Failed to start todo summary refresh task");
+            return ESP_ERR_NO_MEM;
+        }
+    }
+    // Else: a refresh is already in flight and will pick up current archive state on its own
+    // -- not an error, just a no-op for this call.
+    return ESP_OK;
 }
 
 }  // namespace lock_screen_runtime

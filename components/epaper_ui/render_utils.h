@@ -34,6 +34,9 @@ void ForEachOutlineOffset(int stroke_thickness, DrawFn&& fn)
 std::vector<std::string> WrapTextToWidth(design::TypographyRole role,
                                          const std::string& text,
                                          int max_width);
+// Truncate `text` with a trailing ellipsis so it fits `max_width`. Returns empty when even
+// the ellipsis will not fit.
+std::string FitLabelText(design::TypographyRole role, const std::string& text, int max_width);
 int CenterOffset(int container_size, int item_size);
 bool ShouldDrawBlackForTone(int x, int y, uint8_t tone);
 void DrawPortraitPixel(uint8_t* framebuffer,

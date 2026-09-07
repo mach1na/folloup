@@ -195,15 +195,25 @@ namespace lock_screen {
 
 inline constexpr int kTopPadding = spacing::k16;
 inline constexpr int kSidePadding = spacing::k16;
-inline constexpr int kIndicatorRowHeight = icon::k36;
-inline constexpr int kIndicatorItemGap = spacing::k12;
-inline constexpr int kIndicatorTextGap = spacing::k4;
-inline constexpr int kIndicatorStrokeThickness = 2;
 inline constexpr int kContentTop = spacing::k72 + spacing::k48;
-inline constexpr int kTimeLineHeight = 130;
-inline constexpr int kTimeGap = spacing::k4;
-inline constexpr int kDateGap = spacing::k64;
-inline constexpr int kWeekdayDateGap = spacing::k2;
+
+// Gap below the weekday/date line, above the divider rule.
+inline constexpr int kDateDividerGap = spacing::k16;
+inline constexpr int kDividerHeight = 2;
+// Gap below the divider, above the "TO-DO" heading.
+inline constexpr int kDividerSectionGap = spacing::k16;
+// Gap below the heading (or empty-state line), above the first todo row.
+inline constexpr int kHeadingRowGap = spacing::k12;
+// Gap between each todo row, and between the last row and the "+N more" line.
+inline constexpr int kRowGap = spacing::k16;
+inline constexpr int kCheckboxSize = icon::k32;
+inline constexpr int kCheckboxTextGap = spacing::k12;
+// Extra leading between a single todo's own wrapped lines.
+inline constexpr int kWrapLineGap = spacing::k4;
+inline constexpr int kMaxWrapLinesPerTodo = 3;
+
+inline constexpr int kLockIconSize = spacing::k72;
+inline constexpr int kLockIconBottomMargin = spacing::k48;
 
 }  // namespace lock_screen
 

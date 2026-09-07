@@ -23,29 +23,6 @@ int ResolveHeight(const ListItemHeaderStyle& style)
                      LineHeight(style.role)});
 }
 
-// Truncate `text` with a trailing ellipsis so it fits `max_width`. Returns empty when even
-// the ellipsis will not fit.
-std::string FitLabelText(design::TypographyRole role, const std::string& text, int max_width)
-{
-    if (text.empty() || max_width <= 0) {
-        return {};
-    }
-    if (MeasureText(role, text) <= max_width) {
-        return text;
-    }
-    constexpr const char* kEllipsis = "...";
-    if (MeasureText(role, kEllipsis) > max_width) {
-        return {};
-    }
-    for (size_t length = text.size(); length > 0; --length) {
-        const std::string candidate = text.substr(0, length) + kEllipsis;
-        if (MeasureText(role, candidate) <= max_width) {
-            return candidate;
-        }
-    }
-    return kEllipsis;
-}
-
 void DrawCenteredIcon(uint8_t* framebuffer,
                       int raw_width,
                       int raw_height,

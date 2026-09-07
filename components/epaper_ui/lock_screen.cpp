@@ -1,107 +1,18 @@
 #include "epaper_ui/lock_screen.h"
 
 #include <algorithm>
-#include <cstddef>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "design_tokens.h"
+#include "epaper_ui/checkbox.h"
 #include "epaper_ui/font_renderer.h"
 #include "project_assets.h"
+#include "render_utils.h"
 
 namespace epaper_ui {
 namespace {
-
-void DrawRawPixel(uint8_t* framebuffer, int raw_width, int raw_height, int x, int y, bool black)
-{
-    if (framebuffer == nullptr || x < 0 || y < 0 || x >= raw_width || y >= raw_height) {
-        return;
-    }
-
-    const size_t index = static_cast<size_t>(y) * static_cast<size_t>(raw_width / 8) +
-                         static_cast<size_t>(x / 8);
-    const uint8_t mask = static_cast<uint8_t>(0x80U >> (x & 0x07));
-    if (black) {
-        framebuffer[index] &= static_cast<uint8_t>(~mask);
-    } else {
-        framebuffer[index] |= mask;
-    }
-}
-
-void DrawPortraitPixel(uint8_t* framebuffer,
-                       int raw_width,
-                       int raw_height,
-                       int portrait_width,
-                       int portrait_height,
-                       int x,
-                       int y,
-                       bool black)
-{
-    if (x < 0 || y < 0 || x >= portrait_width || y >= portrait_height) {
-        return;
-    }
-
-    const int raw_x = y;
-    const int raw_y = raw_height - 1 - x;
-    DrawRawPixel(framebuffer, raw_width, raw_height, raw_x, raw_y, black);
-}
-
-bool ShouldDrawBlackForTone(int x, int y, uint8_t tone)
-{
-    if (tone <= design::color::kGray1) {
-        return true;
-    }
-    if (tone <= design::color::kGray2) {
-        return ((x + y) & 1) == 0;
-    }
-    if (tone < design::color::kGray4) {
-        return (x % 2 == 0) && (y % 2 == 0);
-    }
-    return false;
-}
-
-bool AssetPixelSet(const EmbeddedImageAsset& asset, int x, int y)
-{
-    if (asset.data == nullptr || x < 0 || y < 0 || x >= asset.width || y >= asset.height) {
-        return false;
-    }
-
-    const size_t byte_index =
-        static_cast<size_t>(y) * asset.stride_bytes + static_cast<size_t>(x / 8);
-    const uint8_t bit_mask = static_cast<uint8_t>(0x80U >> (x & 0x07));
-    return (asset.data[byte_index] & bit_mask) != 0;
-}
-
-void DrawPortraitMonoAsset(uint8_t* framebuffer,
-                           int raw_width,
-                           int raw_height,
-                           int portrait_width,
-                           int portrait_height,
-                           int x,
-                           int y,
-                           const EmbeddedImageAsset* asset,
-                           uint8_t tone)
-{
-    if (framebuffer == nullptr || asset == nullptr || asset->format != ImageFormat::kMono1) {
-        return;
-    }
-
-    for (int row = 0; row < asset->height; ++row) {
-        for (int col = 0; col < asset->width; ++col) {
-            if (!AssetPixelSet(*asset, col, row)) {
-                continue;
-            }
-            DrawPortraitPixel(framebuffer,
-                              raw_width,
-                              raw_height,
-                              portrait_width,
-                              portrait_height,
-                              x + col,
-                              y + row,
-                              ShouldDrawBlackForTone(x + col, y + row, tone));
-        }
-    }
-}
 
 template <typename DrawFn>
 void DrawOutlined(DrawFn&& draw_fn, int stroke_thickness)
@@ -131,22 +42,8 @@ void DrawOutlinedText(uint8_t* framebuffer,
 {
     DrawOutlined(
         [&](int dx, int dy, uint8_t tone) {
-            epaper_ui::DrawText(
-                [&](int px, int py, uint8_t color) {
-                    DrawPortraitPixel(framebuffer,
-                                      raw_width,
-                                      raw_height,
-                                      portrait_width,
-                                      portrait_height,
-                                      px,
-                                      py,
-                                      ShouldDrawBlackForTone(px, py, color));
-                },
-                x + dx,
-                y + dy,
-                text,
-                tone,
-                role);
+            DrawTypographyText(framebuffer, raw_width, raw_height, portrait_width, portrait_height,
+                               x + dx, y + dy, text, role, tone);
         },
         stroke_thickness);
 }
@@ -373,6 +270,79 @@ std::string_view SafeText(const std::string& text, std::string_view fallback)
     return text.empty() ? fallback : std::string_view(text);
 }
 
+std::string BuildDateLine(std::string_view weekday, std::string_view date)
+{
+    if (weekday.empty()) {
+        return std::string(date);
+    }
+    if (date.empty()) {
+        return std::string(weekday);
+    }
+    return std::string(weekday) + ", " + std::string(date);
+}
+
+// Word-wraps `text` to `max_width` at the body role, capped to
+// design::lock_screen::kMaxWrapLinesPerTodo lines -- the last one ellipsis-fitted from
+// whatever text didn't make the earlier lines, rather than just cutting off wherever the
+// word-wrap happened to land.
+std::vector<std::string> WrapAndCapTodoText(const std::string& text, int max_width)
+{
+    const auto role = design::TypographyRole::kBody;
+    std::vector<std::string> lines = WrapTextToWidth(role, text, max_width);
+    const size_t max_lines = static_cast<size_t>(design::lock_screen::kMaxWrapLinesPerTodo);
+    if (lines.size() <= max_lines || max_lines == 0) {
+        return lines;
+    }
+
+    std::string tail = lines[max_lines - 1];
+    for (size_t i = max_lines; i < lines.size(); ++i) {
+        tail += " " + lines[i];
+    }
+    lines.resize(max_lines);
+    lines[max_lines - 1] = FitLabelText(role, tail, max_width);
+    return lines;
+}
+
+// Draws one checkbox + wrapped-text todo row at (x, y) within `content_width`. Returns the
+// row's total drawn height so the caller can advance its layout cursor.
+int DrawTodoRow(uint8_t* framebuffer,
+                int raw_width,
+                int raw_height,
+                int portrait_width,
+                int portrait_height,
+                int x,
+                int y,
+                int content_width,
+                const std::string& text)
+{
+    const int checkbox_size = design::lock_screen::kCheckboxSize;
+    const int text_x = x + checkbox_size + design::lock_screen::kCheckboxTextGap;
+    const int text_max_width =
+        std::max(0, content_width - checkbox_size - design::lock_screen::kCheckboxTextGap);
+    const std::vector<std::string> lines = WrapAndCapTodoText(text, text_max_width);
+
+    const CheckboxState checkbox_state = {.checked = false, .selected = false};
+    CheckboxStyle checkbox_style = {};
+    checkbox_style.size = checkbox_size;
+    DrawCheckbox(framebuffer, raw_width, raw_height, portrait_width, portrait_height, x, y,
+                checkbox_state, checkbox_style);
+
+    const auto role = design::TypographyRole::kBody;
+    const int line_height = LineHeight(role);
+    int line_y = y;
+    for (const std::string& line : lines) {
+        DrawTypographyText(framebuffer, raw_width, raw_height, portrait_width, portrait_height,
+                           text_x, line_y, line, role, design::color::kBlack);
+        line_y += line_height + design::lock_screen::kWrapLineGap;
+    }
+
+    const int text_height =
+        lines.empty() ? 0
+                     : (static_cast<int>(lines.size()) * line_height) +
+                           ((static_cast<int>(lines.size()) - 1) * design::lock_screen::kWrapLineGap);
+    return std::max(checkbox_size, text_height);
+}
+
 }  // namespace
 
 void DrawLockScreen(uint8_t* framebuffer,
@@ -394,96 +364,142 @@ void DrawLockScreen(uint8_t* framebuffer,
                             portrait_height,
                             status_state);
 
-    const std::string_view hour = SafeText(state.hour_text, "--");
-    const std::string_view minute = SafeText(state.minute_text, "--");
-    const std::string_view weekday = SafeText(state.weekday_text, "");
-    const std::string_view date = SafeText(state.date_text, "");
+    const int content_left = design::lock_screen::kSidePadding;
+    const int content_width =
+        std::max(0, portrait_width - (2 * design::lock_screen::kSidePadding));
+    int cursor_y = design::lock_screen::kContentTop;
 
-    const auto time_role = design::TypographyRole::kDisplayXL;
-    const auto weekday_role = design::TypographyRole::kLabelMediumBlack;
-    const auto date_role = design::TypographyRole::kLabelMediumBlack;
-    const int time_line_height = design::lock_screen::kTimeLineHeight;
-    const int weekday_height = LineHeight(weekday_role);
-    const int date_height = LineHeight(date_role);
-    const int hour_width = MeasureText(time_role, hour);
-    const int minute_width = MeasureText(time_role, minute);
-    const int weekday_width = MeasureText(weekday_role, weekday);
-    const int date_width = MeasureText(date_role, date);
-    const int content_width = std::max({hour_width, minute_width, weekday_width, date_width});
-    const int content_height = (2 * time_line_height) + design::lock_screen::kTimeGap +
-                               design::lock_screen::kDateGap + weekday_height +
-                               design::lock_screen::kWeekdayDateGap + date_height;
-    const int content_x = std::max(0, (portrait_width - content_width) / 2);
-    const int content_y = std::max(design::lock_screen::kContentTop,
-                                   (portrait_height - content_height) / 2);
+    const std::string date_line =
+        BuildDateLine(SafeText(state.weekday_text, ""), SafeText(state.date_text, ""));
+    if (!date_line.empty()) {
+        const auto date_role = design::TypographyRole::kLabelMediumBlack;
+        const int date_width = MeasureText(date_role, date_line);
+        DrawTypographyText(framebuffer,
+                           raw_width,
+                           raw_height,
+                           portrait_width,
+                           portrait_height,
+                           content_left + std::max(0, (content_width - date_width) / 2),
+                           cursor_y,
+                           date_line,
+                           date_role,
+                           design::color::kBlack);
+        cursor_y += LineHeight(date_role);
+    }
+    cursor_y += design::lock_screen::kDateDividerGap;
 
-    DrawText(
-        [&](int px, int py, uint8_t color) {
-            DrawPortraitPixel(framebuffer,
-                              raw_width,
-                              raw_height,
-                              portrait_width,
-                              portrait_height,
-                              px,
-                              py,
-                              ShouldDrawBlackForTone(px, py, color));
-        },
-        content_x + std::max(0, (content_width - hour_width) / 2),
-        content_y,
-        hour,
-        design::color::kBlack,
-        time_role);
-    DrawText(
-        [&](int px, int py, uint8_t color) {
-            DrawPortraitPixel(framebuffer,
-                              raw_width,
-                              raw_height,
-                              portrait_width,
-                              portrait_height,
-                              px,
-                              py,
-                              ShouldDrawBlackForTone(px, py, color));
-        },
-        content_x + std::max(0, (content_width - minute_width) / 2),
-        content_y + time_line_height + design::lock_screen::kTimeGap,
-        minute,
-        design::color::kBlack,
-        time_role);
-    DrawText(
-        [&](int px, int py, uint8_t color) {
-            DrawPortraitPixel(framebuffer,
-                              raw_width,
-                              raw_height,
-                              portrait_width,
-                              portrait_height,
-                              px,
-                              py,
-                              ShouldDrawBlackForTone(px, py, color));
-        },
-        content_x + std::max(0, (content_width - weekday_width) / 2),
-        content_y + (2 * time_line_height) + design::lock_screen::kTimeGap +
-            design::lock_screen::kDateGap,
-        weekday,
-        design::color::kBlack,
-        weekday_role);
-    DrawText(
-        [&](int px, int py, uint8_t color) {
-            DrawPortraitPixel(framebuffer,
-                              raw_width,
-                              raw_height,
-                              portrait_width,
-                              portrait_height,
-                              px,
-                              py,
-                              ShouldDrawBlackForTone(px, py, color));
-        },
-        content_x + std::max(0, (content_width - date_width) / 2),
-        content_y + (2 * time_line_height) + design::lock_screen::kTimeGap +
-            design::lock_screen::kDateGap + weekday_height +
-            design::lock_screen::kWeekdayDateGap,
-        date,
-        design::color::kGray2,
-        date_role);
+    FillPortraitRect(framebuffer,
+                     raw_width,
+                     raw_height,
+                     portrait_width,
+                     portrait_height,
+                     {content_left, cursor_y, content_width, design::lock_screen::kDividerHeight},
+                     design::color::kGray3);
+    cursor_y += design::lock_screen::kDividerHeight + design::lock_screen::kDividerSectionGap;
+
+    const int pending_count = std::max(0, state.pending_todo_count);
+    std::string heading = "TO-DO";
+    if (pending_count > 0) {
+        heading += " - " + std::to_string(pending_count) + " PENDING";
+    }
+    const auto heading_role = design::TypographyRole::kLabelMediumBold;
+    DrawTypographyText(framebuffer,
+                       raw_width,
+                       raw_height,
+                       portrait_width,
+                       portrait_height,
+                       content_left,
+                       cursor_y,
+                       heading,
+                       heading_role,
+                       design::color::kBlack);
+    cursor_y += LineHeight(heading_role) + design::lock_screen::kHeadingRowGap;
+
+    if (pending_count == 0) {
+        const EmbeddedImageAsset* check_icon = project_assets::GetIcon(EmbeddedIconId::kCheck);
+        const auto body_role = design::TypographyRole::kBody;
+        const std::string message = "All caught up";
+        int text_x = content_left;
+        int text_y = cursor_y;
+        if (check_icon != nullptr) {
+            DrawPortraitMonoAsset(framebuffer,
+                                  raw_width,
+                                  raw_height,
+                                  portrait_width,
+                                  portrait_height,
+                                  content_left,
+                                  cursor_y,
+                                  check_icon,
+                                  design::color::kBlack);
+            text_x = content_left + static_cast<int>(check_icon->width) +
+                    design::lock_screen::kCheckboxTextGap;
+            text_y = cursor_y +
+                    std::max(0, (static_cast<int>(check_icon->height) - LineHeight(body_role)) / 2);
+        }
+        DrawTypographyText(framebuffer,
+                           raw_width,
+                           raw_height,
+                           portrait_width,
+                           portrait_height,
+                           text_x,
+                           text_y,
+                           message,
+                           body_role,
+                           design::color::kBlack);
+    } else {
+        const size_t row_count = std::min<size_t>(state.pending_todo_titles.size(), 3);
+        for (size_t i = 0; i < row_count; ++i) {
+            const int row_height = DrawTodoRow(framebuffer,
+                                               raw_width,
+                                               raw_height,
+                                               portrait_width,
+                                               portrait_height,
+                                               content_left,
+                                               cursor_y,
+                                               content_width,
+                                               state.pending_todo_titles[i]);
+            cursor_y += row_height;
+            if (i + 1 < row_count) {
+                cursor_y += design::lock_screen::kRowGap;
+            }
+        }
+
+        if (pending_count > static_cast<int>(row_count)) {
+            cursor_y += design::lock_screen::kRowGap;
+            const int more_count = pending_count - static_cast<int>(row_count);
+            const std::string more_text =
+                "+" + std::to_string(more_count) + " more pending";
+            DrawTypographyText(framebuffer,
+                               raw_width,
+                               raw_height,
+                               portrait_width,
+                               portrait_height,
+                               content_left,
+                               cursor_y,
+                               more_text,
+                               design::TypographyRole::kLabelSmall,
+                               design::color::kGray2);
+        }
+    }
+
+    const EmbeddedImageAsset* lock_icon = project_assets::GetIcon(EmbeddedIconId::kLock);
+    if (lock_icon != nullptr) {
+        const int icon_size = design::lock_screen::kLockIconSize;
+        const UiRect dest = {
+            content_left + std::max(0, (content_width - icon_size) / 2),
+            portrait_height - design::lock_screen::kLockIconBottomMargin - icon_size,
+            icon_size,
+            icon_size,
+        };
+        DrawScaledPortraitMonoAsset(framebuffer,
+                                    raw_width,
+                                    raw_height,
+                                    portrait_width,
+                                    portrait_height,
+                                    dest,
+                                    lock_icon,
+                                    design::color::kBlack);
+    }
 }
 
 }  // namespace epaper_ui

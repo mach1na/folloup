@@ -21,28 +21,6 @@ int ResolveWidth(int canvas_width, int origin_x, const ListItemStyle& style)
     return std::max(0, canvas_width - origin_x);
 }
 
-// Truncate `text` with a trailing ellipsis so it fits `max_width`.
-std::string FitLabelText(design::TypographyRole role, const std::string& text, int max_width)
-{
-    if (text.empty() || max_width <= 0) {
-        return {};
-    }
-    if (MeasureText(role, text) <= max_width) {
-        return text;
-    }
-    constexpr const char* kEllipsis = "...";
-    if (MeasureText(role, kEllipsis) > max_width) {
-        return {};
-    }
-    for (size_t length = text.size(); length > 0; --length) {
-        const std::string candidate = text.substr(0, length) + kEllipsis;
-        if (MeasureText(role, candidate) <= max_width) {
-            return candidate;
-        }
-    }
-    return kEllipsis;
-}
-
 // Header style resolved for this row: fixed content width, item selection, and outline flags.
 ListItemHeaderStyle BuildHeaderStyle(const ListItemStyle& style, int content_width)
 {

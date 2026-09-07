@@ -279,9 +279,11 @@ The e-paper UI stack is now intentionally split across three layers:
   into a neutral `epaper_ui::StatusBarState`, `footer_runtime`, which projects
   footer layout plus shared-focus projection into
   `epaper_ui::GlobalFooterState`, `overlay_runtime`, which owns retained
-  modal/toast UI contracts, and `lock_screen_runtime`, which composes time plus
-  status indicators into `epaper_ui::LockScreenState` and lock-screen
-  visibility.
+  modal/toast UI contracts, and `lock_screen_runtime`, which composes the
+  date, a pending-todo summary (`recording_archive_service`-sourced, refreshed
+  independently of `Show()` so its own blocking SD scan never runs on the
+  PMIC/power-key interrupt task), and status indicators into
+  `epaper_ui::LockScreenState` and lock-screen visibility.
 
 `display_service` remains the owner of the physical panel, framebuffer, refresh
 mode decisions, and sleep/wake transitions. It may consume `epaper_ui`
@@ -409,7 +411,8 @@ The current app-runtime helpers under `main/` are:
 - `page_interaction_runtime`: own the registration contract future page
   runtimes/coordinators use to plug page targets into the shared touch
   interaction path
-- `lock_screen_runtime`: own lock-screen visibility and clock-state composition
+- `lock_screen_runtime`: own lock-screen visibility, date-state composition, and
+  the cached pending-todo summary shown on it
 - `ui_refresh_runtime`: own the keyed latest-wins UI presentation worker, and
   enforce the global overlay refresh rule (see "Overlay refresh suppression")
 
