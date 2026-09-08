@@ -297,6 +297,16 @@ esp_err_t ShowSummarizeScreen(display_service::RefreshMode refresh_mode)
 esp_err_t ShowNotesScreen(display_service::RefreshMode refresh_mode)
 {
     SyncStatusBarState("show_notes_screen");
+    // Build the timeline from the archive (SD read) *before* resetting focus / syncing the
+    // footer projection. SyncFromArchive can silently move the coordinator's own focus away from
+    // wherever it last was (e.g. a footer role, whether from a fresh-boot coordinator whose only
+    // navigation item is Home, or from having last left this page via the footer) -- if the
+    // footer projection were built first, it would show that stale selection (Home highlighted)
+    // with nothing to re-sync it afterward.
+    const esp_err_t sync_err = notes_page_runtime::SyncFromArchive(false);
+    if (sync_err != ESP_OK && sync_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Notes page sync before show failed: %s", esp_err_to_name(sync_err));
+    }
     page_input_runtime::ResetFocusForScreen(display_service::ScreenId::kNotes);
     footer_runtime::SetLayoutState(FooterLayoutForScreen(display_service::ScreenId::kNotes));
     footer_runtime::SetProjectionState(
@@ -305,11 +315,6 @@ esp_err_t ShowNotesScreen(display_service::RefreshMode refresh_mode)
     if (footer_err != ESP_OK && footer_err != ESP_ERR_INVALID_STATE) {
         ESP_LOGW(kTag, "Footer sync before notes screen failed: %s", esp_err_to_name(footer_err));
     }
-    // Build the timeline from the archive (SD read) before showing.
-    const esp_err_t sync_err = notes_page_runtime::SyncFromArchive(false);
-    if (sync_err != ESP_OK && sync_err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(kTag, "Notes page sync before show failed: %s", esp_err_to_name(sync_err));
-    }
     return display_service::SetCurrentScreen(display_service::ScreenId::kNotes, refresh_mode,
                                              "show_notes_screen");
 }
@@ -317,6 +322,12 @@ esp_err_t ShowNotesScreen(display_service::RefreshMode refresh_mode)
 esp_err_t ShowTodosScreen(display_service::RefreshMode refresh_mode)
 {
     SyncStatusBarState("show_todos_screen");
+    // See ShowNotesScreen's comment: sync before resetting focus / the footer projection, so the
+    // footer doesn't render a stale selection SyncFromArchive is about to move away from.
+    const esp_err_t sync_err = todos_page_runtime::SyncFromArchive(false);
+    if (sync_err != ESP_OK && sync_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Todos page sync before show failed: %s", esp_err_to_name(sync_err));
+    }
     page_input_runtime::ResetFocusForScreen(display_service::ScreenId::kTodos);
     footer_runtime::SetLayoutState(FooterLayoutForScreen(display_service::ScreenId::kTodos));
     footer_runtime::SetProjectionState(
@@ -325,11 +336,6 @@ esp_err_t ShowTodosScreen(display_service::RefreshMode refresh_mode)
     if (footer_err != ESP_OK && footer_err != ESP_ERR_INVALID_STATE) {
         ESP_LOGW(kTag, "Footer sync before todos screen failed: %s", esp_err_to_name(footer_err));
     }
-    // Build the timeline from the archive (SD read) before showing.
-    const esp_err_t sync_err = todos_page_runtime::SyncFromArchive(false);
-    if (sync_err != ESP_OK && sync_err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(kTag, "Todos page sync before show failed: %s", esp_err_to_name(sync_err));
-    }
     return display_service::SetCurrentScreen(display_service::ScreenId::kTodos, refresh_mode,
                                              "show_todos_screen");
 }
@@ -337,6 +343,12 @@ esp_err_t ShowTodosScreen(display_service::RefreshMode refresh_mode)
 esp_err_t ShowFollowUpScreen(display_service::RefreshMode refresh_mode)
 {
     SyncStatusBarState("show_follow_up_screen");
+    // See ShowNotesScreen's comment: sync before resetting focus / the footer projection, so the
+    // footer doesn't render a stale selection SyncFromArchive is about to move away from.
+    const esp_err_t sync_err = follow_up_page_runtime::SyncFromArchive(false);
+    if (sync_err != ESP_OK && sync_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Follow-up page sync before show failed: %s", esp_err_to_name(sync_err));
+    }
     page_input_runtime::ResetFocusForScreen(display_service::ScreenId::kFollowUp);
     footer_runtime::SetLayoutState(FooterLayoutForScreen(display_service::ScreenId::kFollowUp));
     footer_runtime::SetProjectionState(
@@ -345,11 +357,6 @@ esp_err_t ShowFollowUpScreen(display_service::RefreshMode refresh_mode)
     if (footer_err != ESP_OK && footer_err != ESP_ERR_INVALID_STATE) {
         ESP_LOGW(kTag, "Footer sync before follow-up screen failed: %s",
                  esp_err_to_name(footer_err));
-    }
-    // Build the timeline from the archive (SD read) before showing.
-    const esp_err_t sync_err = follow_up_page_runtime::SyncFromArchive(false);
-    if (sync_err != ESP_OK && sync_err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(kTag, "Follow-up page sync before show failed: %s", esp_err_to_name(sync_err));
     }
     return display_service::SetCurrentScreen(display_service::ScreenId::kFollowUp, refresh_mode,
                                              "show_follow_up_screen");
