@@ -9,7 +9,8 @@ namespace {
 
 constexpr int kMargin = design::spacing::k16;
 constexpr int kContentTopGap = design::spacing::k16;
-constexpr int kHeadingTimelineGap = design::spacing::k24;
+constexpr int kHeadingSegmentGap = design::spacing::k24;
+constexpr int kSegmentTimelineGap = design::spacing::k24;
 constexpr int kTimelineFooterGap = design::spacing::k16;
 constexpr auto kHeadingRole = design::TypographyRole::kHeadingH1;
 
@@ -24,12 +25,20 @@ int FooterTop(int portrait_height)
            design::global_footer::kButtonSize;
 }
 
+SegmentControlStyle SegmentStyle(int width)
+{
+    SegmentControlStyle style = {};
+    style.width = width;
+    return style;
+}
+
 struct Layout {
     UiRect heading = {};
+    UiRect segment = {};
     UiRect timeline = {};
 };
 
-Layout BuildLayout(int portrait_width, int portrait_height)
+Layout BuildLayout(int portrait_width, int portrait_height, const TodosPageState& state)
 {
     const int page_width = PageWidth(portrait_width);
     const int content_top = StatusBarHeight() + kContentTopGap;
@@ -37,7 +46,10 @@ Layout BuildLayout(int portrait_width, int portrait_height)
     Layout layout = {};
     layout.heading = {kMargin, content_top, page_width, LineHeight(kHeadingRole)};
 
-    const int timeline_top = layout.heading.bottom() + kHeadingTimelineGap;
+    const int segment_top = layout.heading.bottom() + kHeadingSegmentGap;
+    layout.segment = SegmentControlBounds(kMargin, segment_top, SegmentStyle(page_width));
+
+    const int timeline_top = layout.segment.bottom() + kSegmentTimelineGap;
     const int footer_top = FooterTop(portrait_height);
     const int timeline_height = std::max(0, footer_top - kTimelineFooterGap - timeline_top);
     layout.timeline = {kMargin, timeline_top, page_width, timeline_height};
@@ -60,7 +72,7 @@ TodosTimelineHit HitTestTodosTimeline(int portrait_width,
                                       int x,
                                       int y)
 {
-    const Layout layout = BuildLayout(portrait_width, portrait_height);
+    const Layout layout = BuildLayout(portrait_width, portrait_height, state);
     if (layout.timeline.IsEmpty() || !layout.timeline.Contains(x, y)) {
         return {};
     }
@@ -100,13 +112,17 @@ void DrawTodosPage(uint8_t* framebuffer,
     DrawStatusBar(framebuffer, raw_width, raw_height, portrait_width, portrait_height,
                   status_bar_state);
 
-    const Layout layout = BuildLayout(portrait_width, portrait_height);
+    const Layout layout = BuildLayout(portrait_width, portrait_height, state);
 
     if (!state.title_text.empty()) {
         DrawTypographyText(framebuffer, raw_width, raw_height, portrait_width, portrait_height,
                            layout.heading.x, layout.heading.y, state.title_text, kHeadingRole,
                            design::color::kBlack);
     }
+
+    DrawSegmentControl(framebuffer, raw_width, raw_height, portrait_width, portrait_height,
+                       layout.segment.x, layout.segment.y, state.segment_control,
+                       SegmentStyle(layout.segment.width));
 
     DrawTimelineList(framebuffer, raw_width, raw_height, portrait_width, portrait_height,
                      layout.timeline.x, layout.timeline.y, state.timeline,

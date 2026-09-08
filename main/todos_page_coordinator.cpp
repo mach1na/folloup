@@ -37,10 +37,11 @@ void TodosPageCoordinator::BuildGroups(const std::vector<RecordingEntry>& record
 {
     timeline_groups_.clear();
 
+    const bool wants_archived = view_mode_ == TodosPageViewMode::kArchived;
     std::vector<const RecordingEntry*> sorted;
     sorted.reserve(recordings.size());
     for (const RecordingEntry& entry : recordings) {
-        if (IsTodoTag(entry.metadata.tag)) {
+        if (IsTodoTag(entry.metadata.tag) && entry.metadata.archived == wants_archived) {
             sorted.push_back(&entry);
         }
     }
@@ -78,6 +79,7 @@ void TodosPageCoordinator::BuildGroups(const std::vector<RecordingEntry>& record
         timeline_entry.follow_up = entry.metadata.follow_up;
         timeline_entry.follow_up_completed = entry.metadata.follow_up_completed;
         timeline_entry.completed = entry.metadata.completed;
+        timeline_entry.archived = entry.metadata.archived;
         timeline_entry.item.header.icon_asset = project_assets::GetIcon(
             has_transcription ? EmbeddedIconId::kTranscribe : EmbeddedIconId::kAudio);
         timeline_entry.item.header.tag_icon_asset = entry.metadata.follow_up ? PinIcon() : nullptr;
@@ -97,20 +99,34 @@ void TodosPageCoordinator::BuildGroups(const std::vector<RecordingEntry>& record
     }
 }
 
-void TodosPageCoordinator::Show(const std::vector<RecordingEntry>& recordings)
+void TodosPageCoordinator::RebuildGroupsForViewMode()
 {
     item_list_active_ = false;
     active_group_index_ = -1;
     selected_recording_id_.clear();
-    BuildGroups(recordings);
+    BuildGroups(recordings_);
     navigation_model_ = page_navigation::BuildTodosPageNavigationModel(TimelineGroupCount());
+    // Position 0 is always the segment control (it's added first in
+    // BuildTodosPageNavigationModel, ahead of the variable-length group list), so this both
+    // resets the page's roving focus on a fresh Show() and keeps focus parked on the segment
+    // control across a live view-mode switch, where it's the only place focus_ can be right now.
     focus_.Configure(navigation_model_.item_count, 0);
     item_focus_.Configure(0, 0);
     visible_group_index_ = TimelineGroupCount() > 0 ? 0 : -1;
 }
 
+void TodosPageCoordinator::Show(const std::vector<RecordingEntry>& recordings)
+{
+    recordings_ = recordings;
+    // view_mode_ is deliberately not reset here -- like Summarize's segment selection, the last
+    // viewed mode persists across leaving and re-entering the screen.
+    segment_control_active_ = false;
+    RebuildGroupsForViewMode();
+}
+
 void TodosPageCoordinator::RefreshFromArchive(const std::vector<RecordingEntry>& recordings)
 {
+    recordings_ = recordings;
     const bool was_active = item_list_active_;
     const std::string selected_id = selected_recording_id_;
     const int focused_group = FocusedTimelineGroupIndex();
@@ -121,7 +137,7 @@ void TodosPageCoordinator::RefreshFromArchive(const std::vector<RecordingEntry>&
 
     item_list_active_ = false;
     active_group_index_ = -1;
-    BuildGroups(recordings);
+    BuildGroups(recordings_);
     navigation_model_ = page_navigation::BuildTodosPageNavigationModel(TimelineGroupCount());
     focus_.Configure(navigation_model_.item_count, 0);
     item_focus_.Configure(0, 0);
@@ -138,6 +154,9 @@ void TodosPageCoordinator::RefreshFromArchive(const std::vector<RecordingEntry>&
             }
         }
     }
+    // Otherwise focus_ stays at the position RefreshFromArchive() just configured it to (0),
+    // which -- unlike the old first-timeline-chip default -- is now always the segment control,
+    // so a background archive-changed event never silently moves focus off of it.
 }
 
 int TodosPageCoordinator::FocusedTimelineGroupIndex() const
@@ -158,10 +177,42 @@ void TodosPageCoordinator::UpdateSelectedRecordingId()
     selected_recording_id_ = entry != nullptr ? entry->recording_id : std::string();
 }
 
+bool TodosPageCoordinator::EnterSegmentControl()
+{
+    if (segment_control_active_) {
+        return false;
+    }
+    segment_control_active_ = true;
+    segment_focus_.Configure(epaper_ui::kSegmentControlDefaultSegmentCount,
+                             view_mode_ == TodosPageViewMode::kActive ? 0 : 1);
+    return true;
+}
+
+bool TodosPageCoordinator::ExitSegmentControl()
+{
+    if (!segment_control_active_) {
+        return false;
+    }
+    segment_control_active_ = false;
+    return true;
+}
+
 bool TodosPageCoordinator::MoveFocus(int delta)
 {
     if (delta == 0) {
         return false;
+    }
+    // While a control is entered, UP/DOWN drives it (switch segment / move within the item
+    // list) instead of the page's roving focus. Leaving is the app-wide DOWN double-click
+    // gesture, handled by the interactions layer.
+    if (segment_control_active_) {
+        if (!segment_focus_.Move(delta)) {
+            return false;
+        }
+        view_mode_ = segment_focus_.index() == 0 ? TodosPageViewMode::kActive
+                                                  : TodosPageViewMode::kArchived;
+        RebuildGroupsForViewMode();
+        return true;
     }
     if (item_list_active_) {
         if (!item_focus_.Move(delta)) {
@@ -352,13 +403,23 @@ bool TodosPageCoordinator::IsRoleFocused(page_navigation::NavigationItemRole rol
 
 epaper_ui::TodosPageState TodosPageCoordinator::BuildState() const
 {
+    const bool is_archived_view = view_mode_ == TodosPageViewMode::kArchived;
+
     epaper_ui::TodosPageState state = {};
     state.title_text = "Todos";
     state.navigation_focus_index = focus_.index();
 
+    state.segment_control.labels = {"Current", "Archived", ""};
+    state.segment_control.segment_count = epaper_ui::kSegmentControlDefaultSegmentCount;
+    state.segment_control.selected_index = is_archived_view ? 1 : 0;
+    state.segment_control.focused =
+        IsRoleFocused(page_navigation::NavigationItemRole::kTodosPageSegmentControl) ||
+        segment_control_active_;
+    state.segment_control.active = segment_control_active_;
+
     epaper_ui::TimelineListState timeline = {};
     timeline.item_label_plural = "Todos";
-    timeline.empty_state_text = "No todos available";
+    timeline.empty_state_text = is_archived_view ? "No archived todos yet" : "No todos available";
     timeline.empty_state_icon_asset = project_assets::GetIcon(EmbeddedIconId::kTaskStart);
     timeline.visible_group_index = visible_group_index_;
     timeline.focused_group_index = FocusedTimelineGroupIndex();

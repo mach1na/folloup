@@ -11,6 +11,13 @@ ActivateResult HandlePrimaryActivate(TodosPageCoordinator& coordinator)
 {
     ActivateResult result = {};
 
+    if (coordinator.IsRoleFocused(NavigationItemRole::kTodosPageSegmentControl)) {
+        result.handled = true;
+        result.play_activate_cue = true;
+        result.intent = ActivateIntent::kToggleSegment;
+        return result;
+    }
+
     if (coordinator.IsRoleFocused(NavigationItemRole::kTodosPageTimelineGroup)) {
         result.handled = true;
         if (coordinator.item_list_active()) {
@@ -68,6 +75,11 @@ void ApplyPrimaryActivateResult(const ActivateResult& result, const ActivateCall
         case ActivateIntent::kOpenItemActions:
             if (callbacks.open_item_actions) {
                 callbacks.open_item_actions();
+            }
+            break;
+        case ActivateIntent::kToggleSegment:
+            if (callbacks.toggle_segment) {
+                callbacks.toggle_segment();
             }
             break;
         case ActivateIntent::kNone:

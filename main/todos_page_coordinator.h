@@ -9,9 +9,15 @@
 #include "page_navigation/roving_focus.h"
 #include "recording_archive_service.h"
 
-// Owns the Todos timeline's data + two-level focus (same model as Notes): the top level roves date
-// chips + the footer; entering a group activates a second focus level over that day's todo rows.
-// Todo rows carry a checkbox accessory reflecting completion.
+// Owns the Todos timeline's data + focus (same model as Notes): the top level roves the segment
+// control, date chips, and the footer; entering a group activates a second focus level over that
+// day's todo rows. Todo rows carry a checkbox accessory reflecting completion.
+// Which subset of todos the page currently shows: active (default) or archived. Archived todos
+// have had their audio deleted by recording_archive_service's age-based sweep (or a manual
+// "Archive now") and are read via the same ScreenId::kTodos surface, switched by the segment
+// control at the top of the page (same widget/pattern as the Summarize page's Notes/Todos switch).
+enum class TodosPageViewMode : uint8_t { kActive, kArchived };
+
 class TodosPageCoordinator {
 public:
     struct TimelineEntry {
@@ -22,6 +28,7 @@ public:
         bool follow_up = false;
         bool follow_up_completed = false;
         bool completed = false;
+        bool archived = false;
     };
     struct TimelineGroup {
         std::string date_key = {};
@@ -34,6 +41,14 @@ public:
     void Show(const std::vector<recording_archive_service::RecordingEntry>& recordings);
     void RefreshFromArchive(
         const std::vector<recording_archive_service::RecordingEntry>& recordings);
+    TodosPageViewMode view_mode() const { return view_mode_; }
+
+    // Enter/exit the segment control (same enter-move-exit convention as Summarize's segment
+    // control and this page's own item list): while active, MoveFocus drives the segment
+    // selection -- which rebuilds the visible groups live -- instead of the page's roving focus.
+    bool EnterSegmentControl();
+    bool ExitSegmentControl();
+    bool segment_control_active() const { return segment_control_active_; }
 
     bool MoveFocus(int delta);
     bool SetFocusIndex(int index);
@@ -63,12 +78,20 @@ private:
     void UpdateSelectedRecordingId();
     const TimelineEntry* FindEntry(const std::string& recording_id, int* group_index,
                                    int* entry_index) const;
+    // Shared reset used by Show() (a fresh page entry) and by MoveFocus() for a live segment
+    // switch. RefreshFromArchive() does NOT use this -- it has its own selection-preserving
+    // restore logic for a reactive data refresh instead of a full reset.
+    void RebuildGroupsForViewMode();
 
     page_navigation::NavigationModel navigation_model_ =
         page_navigation::BuildTodosPageNavigationModel(0);
     page_navigation::RovingFocus focus_{navigation_model_.item_count, 0};
     page_navigation::RovingFocus item_focus_{0, 0};
+    page_navigation::RovingFocus segment_focus_{epaper_ui::kSegmentControlDefaultSegmentCount, 0};
+    std::vector<recording_archive_service::RecordingEntry> recordings_ = {};
     std::vector<TimelineGroup> timeline_groups_ = {};
+    TodosPageViewMode view_mode_ = TodosPageViewMode::kActive;
+    bool segment_control_active_ = false;
     bool item_list_active_ = false;
     int active_group_index_ = -1;
     int visible_group_index_ = -1;

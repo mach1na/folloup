@@ -26,6 +26,7 @@ enum class ItemAction : uint8_t {
     kViewDetails,
     kFollowUp,
     kComplete,
+    kArchiveNow,
     kDelete,
     kClose,
 };
@@ -39,6 +40,7 @@ struct SelectedEntrySnapshot {
     bool follow_up = false;
     bool follow_up_completed = false;
     bool completed = false;
+    bool archived = false;
 };
 
 std::mutex s_mutex;
@@ -237,12 +239,25 @@ esp_err_t SyncFromArchive(bool request_refresh_if_active)
     return err;
 }
 
+void ToggleSegment()
+{
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (s_coordinator.segment_control_active()) {
+            s_coordinator.ExitSegmentControl();
+        } else {
+            s_coordinator.EnterSegmentControl();
+        }
+    }
+    (void)UpdateDisplayStateAndRequestRefresh(display_service::RefreshMode::kPartial);
+}
+
 bool ExitActiveControl()
 {
     bool exited = false;
     {
         std::lock_guard<std::mutex> lock(s_mutex);
-        exited = s_coordinator.ExitItemList();
+        exited = s_coordinator.ExitItemList() || s_coordinator.ExitSegmentControl();
     }
     if (exited) {
         (void)UpdateDisplayStateAndRequestRefresh(display_service::RefreshMode::kPartial);
@@ -285,6 +300,7 @@ bool ShowItemActionsModal()
             .follow_up = entry->follow_up,
             .follow_up_completed = entry->follow_up_completed,
             .completed = entry->completed,
+            .archived = entry->archived,
         };
         s_item_actions.clear();
         modal.title_text = "Todo";
@@ -300,6 +316,12 @@ bool ShowItemActionsModal()
         s_item_actions.push_back(ItemAction::kFollowUp);
         modal.items.push_back({entry->completed ? "Mark incomplete" : "Complete"});
         s_item_actions.push_back(ItemAction::kComplete);
+        // Only offered for a completed-but-not-yet-archived row -- once archived, "Mark
+        // incomplete" above already doubles as the restore action.
+        if (entry->completed && !entry->archived) {
+            modal.items.push_back({"Archive now"});
+            s_item_actions.push_back(ItemAction::kArchiveNow);
+        }
         modal.items.push_back({"Delete"});
         s_item_actions.push_back(ItemAction::kDelete);
         modal.items.push_back({"Close"});
@@ -369,9 +391,14 @@ bool HandleItemActionSelection(int selected_index)
             }
             break;
         }
-        // No explicit SyncFromArchive: DeleteRecording notifies on success and app_shell's
-        // archive handler re-syncs the on-screen page, which is this one. Syncing again
-        // would repeat a full ListRecordings and repaint identical data.
+        // No explicit SyncFromArchive for either of these: MarkRecordingArchived/DeleteRecording
+        // notify on success and app_shell's archive handler re-syncs the on-screen page, which is
+        // this one. Syncing again here would repeat a full ListRecordings and repaint identical
+        // data. Archiving also removes the row from the current (Active) view once that resync
+        // lands, since the entry no longer matches this page's active-view filter.
+        case ItemAction::kArchiveNow:
+            (void)recording_archive_service::MarkRecordingArchived(entry.recording_id, true);
+            break;
         case ItemAction::kDelete:
             (void)recording_archive_service::DeleteRecording(entry.recording_id);
             break;

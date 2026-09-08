@@ -864,6 +864,7 @@ void HandleRecordingSessionEvent(const recording_session_service::Event& event, 
     switch (event.snapshot.phase) {
         case recording_session_service::Phase::kAwaitingTagSelection: {
             time_page_runtime::ClearPendingSelectModal();
+            settings_page_runtime::ClearPendingSelectModal();
             const esp_err_t err =
                 overlay_runtime::ShowSelectModal(BuildRecordingTagSelectModalState());
             FlushOverlayFeedback();
@@ -1234,6 +1235,8 @@ void HandleDispatchedButtonEvent(const button_service::ButtonEventInfo& event)
             !follow_up_page_runtime::HandleItemActionSelection(
                 overlay_result.select_modal_selected_index) &&
             !time_page_runtime::HandleSelectModalSubmit(
+                overlay_result.select_modal_selected_index) &&
+            !settings_page_runtime::HandleSelectModalSubmit(
                 overlay_result.select_modal_selected_index)) {
             (void)recording_session_service::SubmitTagSelection(
                 overlay_result.select_modal_selected_index);

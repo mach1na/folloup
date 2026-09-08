@@ -28,11 +28,17 @@ void ResetFocus();
 // Load the archive (SD read) and (re)build the timeline. Call on page entry / after mutations.
 esp_err_t SyncFromArchive(bool request_refresh_if_active);
 
-// Leave an entered item list (DOWN double-click). Returns true if a list was active.
+// Enter/exit the Current/Archived segment control (OK toggles between the two), mirroring the
+// Summarize page's ToggleSegment. Entering/moving within it live-switches the visible groups; no
+// extra SD read since the coordinator already caches the last-fetched entry list.
+void ToggleSegment();
+
+// Leave an entered control -- item list or segment control (DOWN double-click). Returns true if
+// one was active.
 bool ExitActiveControl();
 
 // Open the item-actions modal for the currently selected todo (View details / Follow up /
-// Complete / Delete / Close). Returns true if it was shown.
+// Complete / Archive now / Delete / Close). Returns true if it was shown.
 bool ShowItemActionsModal();
 // Dispatch the item-actions modal selection. Returns true if an item-actions modal was pending
 // (so the shared submit chain in app_shell stops here).

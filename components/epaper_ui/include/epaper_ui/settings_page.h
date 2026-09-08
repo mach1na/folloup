@@ -8,6 +8,7 @@
 #include "epaper_ui/global_footer.h"
 #include "epaper_ui/menu_toggle.h"
 #include "epaper_ui/sd_status.h"
+#include "epaper_ui/select_input.h"
 #include "epaper_ui/status_bar.h"
 
 namespace epaper_ui {
@@ -19,6 +20,7 @@ enum class SettingsPageItemId : uint8_t {
     kEnableOtgButton,
     kFormatSdButton,
     kManualOnboardingButton,
+    kArchiveAfterInput,
 };
 
 struct SettingsPageState {
@@ -30,6 +32,9 @@ struct SettingsPageState {
     ButtonState enable_otg_button = {};
     ButtonState format_sd_button = {};
     ButtonState manual_onboarding_button = {};
+    // "Archive todos after" picker: opens a fixed-choice SelectModal, same pattern as the Time
+    // page's timezone field.
+    SelectInputState archive_after_input = {};
 };
 
 UiRect SettingsPageItemBounds(int portrait_width,

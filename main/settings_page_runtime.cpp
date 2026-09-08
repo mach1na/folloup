@@ -1,11 +1,14 @@
 #include "settings_page_runtime.h"
 
 #include <climits>
+#include <cstddef>
 #include <mutex>
 
 #include "esp_log.h"
+#include "overlay_runtime.h"
 #include "page_navigation/navigation_model.h"
 #include "page_navigation/page_focus_projection.h"
+#include "recording_archive_service.h"
 #include "settings_page_interactions.h"
 #include "settings_page_coordinator.h"
 #include "storage_service.h"
@@ -17,8 +20,20 @@ namespace {
 
 constexpr const char* kTag = "SettingsPageRuntime";
 
+// Fixed choices offered by the "Archive todos after" picker, mirroring the Time page's
+// timezone SelectModal pattern rather than free-form numeric entry.
+struct ArchiveAfterOption {
+    const char* label;
+    int days;
+};
+constexpr ArchiveAfterOption kArchiveAfterOptions[] = {
+    {"7 days", 7}, {"14 days", 14}, {"30 days", 30},
+    {"60 days", 60}, {"90 days", 90}, {"Never", 0},
+};
+
 std::mutex s_mutex;
 SettingsPageCoordinator s_coordinator = {};
+bool s_archive_after_modal_active = false;
 int32_t s_interaction_generation = 1;
 
 void AdvanceInteractionGenerationLocked()
@@ -102,7 +117,8 @@ bool FooterProjectionChangedForFocusIndexes(int old_focus_index, int new_focus_i
 
 epaper_ui::SettingsPageState BuildStateLocked()
 {
-    return s_coordinator.BuildState(wifi_service::GetUiState(), storage_service::GetSnapshot());
+    return s_coordinator.BuildState(wifi_service::GetUiState(), storage_service::GetSnapshot(),
+                                    recording_archive_service::GetArchiveAfterDays());
 }
 
 }  // namespace
@@ -206,6 +222,51 @@ void ResetFocus()
         projection = BuildFooterProjectionStateLocked();
     }
     footer_runtime::SetProjectionState(projection);
+}
+
+esp_err_t ShowArchiveAfterModal()
+{
+    epaper_ui::SelectModalState state = {};
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        state.visible = true;
+        state.title_text = "Archive todos after";
+        const int current_days = recording_archive_service::GetArchiveAfterDays();
+        state.selected_index = 0;
+        for (size_t index = 0; index < std::size(kArchiveAfterOptions); ++index) {
+            state.items.push_back({.label_text = kArchiveAfterOptions[index].label});
+            if (kArchiveAfterOptions[index].days == current_days) {
+                state.selected_index = static_cast<int>(index);
+            }
+        }
+        s_archive_after_modal_active = true;
+    }
+    return overlay_runtime::ShowSelectModal(state);
+}
+
+bool HandleSelectModalSubmit(int selected_index)
+{
+    bool was_active = false;
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        was_active = s_archive_after_modal_active;
+        s_archive_after_modal_active = false;
+    }
+    if (!was_active) {
+        return false;
+    }
+    if (selected_index >= 0 && selected_index < static_cast<int>(std::size(kArchiveAfterOptions))) {
+        (void)recording_archive_service::SetArchiveAfterDays(
+            kArchiveAfterOptions[selected_index].days);
+    }
+    (void)UpdateDisplayStateAndRequestRefresh(display_service::RefreshMode::kPartial);
+    return true;
+}
+
+void ClearPendingSelectModal()
+{
+    std::lock_guard<std::mutex> lock(s_mutex);
+    s_archive_after_modal_active = false;
 }
 
 }  // namespace settings_page_runtime

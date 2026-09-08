@@ -16,6 +16,7 @@ enum class ActivateIntent : uint8_t {
     kShowWifi,
     kShowTime,
     kOpenItemActions,
+    kToggleSegment,
 };
 
 struct ActivateResult {
@@ -33,6 +34,7 @@ struct ActivateCallbacks {
     std::function<void()> show_wifi;
     std::function<void()> show_time;
     std::function<void()> open_item_actions;
+    std::function<void()> toggle_segment;
 };
 
 // Primary (OK / tap-release) on a focused date chip enters its item list; on a focused todo it

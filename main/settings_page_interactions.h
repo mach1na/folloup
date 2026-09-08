@@ -20,6 +20,7 @@ enum class ActivateIntent : uint8_t {
     kEnableOtg,
     kShowFormatSdModal,
     kShowOnboarding,
+    kShowArchiveAfterModal,
 };
 
 struct ActivateResult {
@@ -40,6 +41,7 @@ struct ActivateCallbacks {
     std::function<void()> enable_otg;
     std::function<void()> show_format_sd_modal;
     std::function<void()> show_onboarding;
+    std::function<void()> show_archive_after_modal;
 };
 
 ActivateResult HandlePrimaryActivate(const SettingsPageCoordinator& coordinator);
