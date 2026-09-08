@@ -1443,6 +1443,14 @@ void ShutdownTask(void*)
             ESP_LOGW(kTag, "Shutdown indicator refresh failed: %s",
                      esp_err_to_name(status_bar_err));
         }
+        // Freeze the panel on the lock screen's todo summary rather than whatever page
+        // happened to be active -- a failed paint here shouldn't block the actual
+        // power-off, so just log and fall through either way.
+        const esp_err_t lock_screen_err = lock_screen_runtime::ShowForShutdown();
+        if (lock_screen_err != ESP_OK && lock_screen_err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(kTag, "Freeze to lock screen before shutdown failed: %s",
+                     esp_err_to_name(lock_screen_err));
+        }
         ESP_LOGW(kTag, "Power button release settled; releasing power hold");
         const esp_err_t err = power_service::RequestShutdown();
         if (err != ESP_OK) {

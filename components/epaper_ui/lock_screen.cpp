@@ -482,8 +482,9 @@ void DrawLockScreen(uint8_t* framebuffer,
         }
     }
 
-    const EmbeddedImageAsset* lock_icon = project_assets::GetIcon(EmbeddedIconId::kLock);
-    if (lock_icon != nullptr) {
+    const EmbeddedImageAsset* bottom_icon = project_assets::GetIcon(
+        state.for_shutdown ? EmbeddedIconId::kPower : EmbeddedIconId::kLock);
+    if (bottom_icon != nullptr) {
         const int icon_size = design::lock_screen::kLockIconSize;
         const UiRect dest = {
             content_left + std::max(0, (content_width - icon_size) / 2),
@@ -497,7 +498,7 @@ void DrawLockScreen(uint8_t* framebuffer,
                                     portrait_width,
                                     portrait_height,
                                     dest,
-                                    lock_icon,
+                                    bottom_icon,
                                     design::color::kBlack);
     }
 }

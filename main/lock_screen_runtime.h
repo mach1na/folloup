@@ -9,6 +9,14 @@ namespace lock_screen_runtime {
 esp_err_t Init();
 bool IsActive();
 esp_err_t Show();
+// Like Show(), but for freezing the panel on the lock screen's todo summary as the
+// last thing painted before a full power-off. Paints synchronously via
+// display_service::WakeDisplayToScreen (blocks until the panel hardware is actually
+// done, and works correctly even if the panel is currently asleep -- unlike Show()'s
+// SetCurrentScreen path, which is silently dropped in that case). Skips Show()'s
+// trailing ForceDisplaySleep() call, which would be redundant/wrong immediately
+// before a hard power cut.
+esp_err_t ShowForShutdown();
 esp_err_t Hide();
 // Like Hide(), but for waking directly out of display/light sleep while locked: wakes
 // the panel straight to the restore screen in one full refresh instead of redrawing the
