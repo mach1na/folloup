@@ -1138,3 +1138,55 @@ Needs a design pass before implementing:
   deciding whether this item should fix that race first/together, or ship
   with the known limitation called out.
 Own branch/PR.
+
+## Onboarding carousel's button-gesture slides describe the wrong hardware
+
+Found while writing `docs/user-manual.md`: the onboarding carousel's slide
+copy (`main/onboarding_page_coordinator.cpp:19-42`, `kSlides`) describes a
+button layout that doesn't match this board. Craig's read: it's modeled on
+the original reTerminal Sticky's controls, not the Waveshare's — Waveshare
+has a rocker switch (up/down, with a center press) plus two separate
+buttons, not three discrete equal buttons.
+
+Specifically wrong/misleading, verified against the actual button code
+(`components/button_service/`, `main/button_input_runtime.cpp`,
+`main/power_key_runtime.cpp`, `components/board/waveshare_board.cpp:70-75`)
+and confirmed while researching `docs/user-manual.md`:
+
+- Slide 2 ("Capture in a tap"): "Double-press to lock the screen." Locking
+  is actually a **short press of `PWR`** — there's no double-press gesture
+  anywhere in the button code, on any button.
+- Slide 3 ("Navigate with keys"): "Key 1 selects, key 2 navigates up, and
+  key 3 navigates down." This frames navigation as three separate,
+  equal-weight keys. The real layout is one rocker (`UP`/`DOWN`, GPIO4/6)
+  with a center-press button (`FN`, GPIO5) for select, plus a separate
+  `ACTION` button that *also* selects on a quick press but records on a
+  press-and-hold — none of which this slide mentions. ("Hold key 3 to
+  exit certain components" is at least directionally right — that's
+  `DOWN`'s long-press "exit the current control" gesture — but it's
+  presented as part of the same wrong three-key model.)
+- Slide 4 ("Sleep & power"): "Hold keys 1 and 2 to shut it down; press and
+  hold key 1 to turn it on." There is no two-button shutdown chord
+  anywhere in the code — `app_shell.cpp` explicitly rejected that idea
+  ("No UP+power shutdown chord on this board... a chord would only
+  duplicate [the PMIC's own key] and can misfire"). The real gesture is
+  holding `PWR` for about a second, which opens a "Shut down device?"
+  confirmation modal (`components/board/waveshare_board.cpp:70-75` configures
+  that ~1s short/long IRQ split; a separate 6s continuous hold is a
+  hardware-forced cut, independent of firmware, as a failsafe). There's
+  also no "hold key 1 to turn on" gesture in the reviewed power-on path.
+
+Fix: rewrite slides 2-4's body text to describe the actual Waveshare
+control layout — `ACTION` (quick press to select, press-and-hold to
+record), the rocker (`UP`/`DOWN` to navigate, center `FN` press to
+select, hold `DOWN` to exit a list/scroll/switch), and `PWR` (short press
+to lock/unlock, ~1s hold for the shutdown confirmation). `docs/user-manual.md`'s
+["At a glance: the buttons"](user-manual.md#at-a-glance-the-buttons) section
+already has this written accurately and can be used as the source text.
+Also worth checking whether the carousel's slide *images*
+(`EmbeddedImageId::kSlide2`/`kSlide3`/`kSlide4`, generated via
+`scripts/generate_epaper_project_assets.py` from `assets/epaper_assets.json`)
+depict the old three-button layout too, not just the body copy — if so
+they need regenerating/redrawing, not just the text.
+
+Own branch/PR.

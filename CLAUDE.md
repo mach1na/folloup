@@ -279,3 +279,9 @@ always take precedence over built-in sdkconfig credentials.
 - `GPIO0` (`ACTION`/BOOT button) is the boot/download strap pin and must read
   high at reset — it's only ever pulled low by a button press, never held
   during startup.
+- `docs/user-manual.md` is the end-user manual and must stay in sync with
+  behavior: whenever a change adds, removes, or changes user-visible
+  functionality (a new screen, a changed control/gesture, a renamed
+  button, a different flow), update the relevant section of the manual as
+  part of that change, not as a follow-up. It describes actual behavior,
+  not code — write it in plain, user-facing terms.
