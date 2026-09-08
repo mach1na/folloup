@@ -20,6 +20,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs.h"
+#include "sdkconfig.h"
 #include "storage_service.h"
 
 namespace recording_archive_service {
@@ -37,7 +38,7 @@ using ArchiveMetadata = RecordingMetadata;
 // without an SD scan; the on-demand scan then reconciles and only repaints if they changed.
 constexpr const char* kSnapshotNvsNamespace = "rec_archive";
 constexpr const char* kSnapshotNvsKey = "counts";
-constexpr uint32_t kSnapshotNvsVersion = 2;
+constexpr uint32_t kSnapshotNvsVersion = 3;
 
 struct PersistedCounts {
     uint32_t version = kSnapshotNvsVersion;
@@ -47,14 +48,23 @@ struct PersistedCounts {
     int32_t follow_up_recording_count = 0;
     int32_t completed_todo_count = 0;
     int32_t incomplete_todo_count = 0;
+    int32_t archived_todo_count = 0;
     int32_t pending_transcription_count = 0;
 };
+
+// A separate namespace from kSnapshotNvsNamespace above: that one is a versioned cached-counts
+// blob, this is a small user setting -- different shape, different concern, own key.
+constexpr const char* kArchiveConfigNvsNamespace = "rec_archive_cfg";
+constexpr const char* kArchiveAfterDaysNvsKey = "days";
+constexpr int kMaxArchiveAfterDays = 3650;
 
 std::mutex s_mutex;
 Snapshot s_snapshot = {};
 EventHandler s_event_handler = nullptr;
 void* s_event_context = nullptr;
 std::atomic<bool> s_refresh_in_flight{false};
+// 0 = automatic archiving disabled ("Never"). Guarded by s_mutex.
+int s_archive_after_days = CONFIG_FOLLOWUP_TODO_ARCHIVE_AFTER_DAYS;
 
 struct WavHeader {
     char riff[4];
@@ -271,6 +281,11 @@ std::string SerializeMetadata(const ArchiveMetadata& metadata)
     cJSON_AddBoolToObject(root, "pending_transcription", metadata.pending_transcription);
     cJSON_AddStringToObject(root, "tag", TagName(metadata.tag));
     cJSON_AddBoolToObject(root, "completed", metadata.completed);
+    cJSON_AddNumberToObject(root, "completed_unix_seconds",
+                            static_cast<double>(metadata.completed_unix_seconds));
+    cJSON_AddBoolToObject(root, "archived", metadata.archived);
+    cJSON_AddNumberToObject(root, "archived_unix_seconds",
+                            static_cast<double>(metadata.archived_unix_seconds));
     cJSON_AddBoolToObject(root, "follow_up", metadata.follow_up);
     cJSON_AddBoolToObject(root, "follow_up_completed", metadata.follow_up_completed);
 
@@ -341,6 +356,20 @@ bool ParseMetadata(const std::string& json, ArchiveMetadata* metadata)
     }
 
     parsed.completed = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "completed"));
+
+    cJSON* completed_unix_seconds =
+        cJSON_GetObjectItemCaseSensitive(root, "completed_unix_seconds");
+    if (cJSON_IsNumber(completed_unix_seconds)) {
+        parsed.completed_unix_seconds = static_cast<int64_t>(completed_unix_seconds->valuedouble);
+    }
+
+    parsed.archived = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "archived"));
+
+    cJSON* archived_unix_seconds = cJSON_GetObjectItemCaseSensitive(root, "archived_unix_seconds");
+    if (cJSON_IsNumber(archived_unix_seconds)) {
+        parsed.archived_unix_seconds = static_cast<int64_t>(archived_unix_seconds->valuedouble);
+    }
+
     parsed.follow_up = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "follow_up"));
     parsed.follow_up_completed =
         cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "follow_up_completed"));
@@ -400,8 +429,11 @@ bool ResolveExistingBasePath(const std::string& mount_point,
     }
 
     for (const std::string& candidate : CandidateBasePaths(mount_point, recording_id)) {
+        // Anchor on either sidecar: an archived todo has had its .wav deleted on purpose but
+        // still needs to resolve (e.g. to restore it via MutateMetadataOnMountedFilesystem).
         struct stat st = {};
-        if (stat((candidate + ".wav").c_str(), &st) == 0) {
+        if (stat((candidate + ".wav").c_str(), &st) == 0 ||
+            stat((candidate + ".json").c_str(), &st) == 0) {
             *base_path = candidate;
             return true;
         }
@@ -643,11 +675,15 @@ esp_err_t ScanDirectoryInto(const std::string& directory, Snapshot* snapshot)
             snapshot->pending_transcription_count++;
         }
         if (IsTodoRecordingTag(metadata.tag)) {
-            snapshot->todo_recording_count++;
-            if (metadata.completed) {
-                snapshot->completed_todo_count++;
+            if (metadata.archived) {
+                snapshot->archived_todo_count++;
             } else {
-                snapshot->incomplete_todo_count++;
+                snapshot->todo_recording_count++;
+                if (metadata.completed) {
+                    snapshot->completed_todo_count++;
+                } else {
+                    snapshot->incomplete_todo_count++;
+                }
             }
         } else {
             // Note + Idea both live under Notes.
@@ -656,6 +692,98 @@ esp_err_t ScanDirectoryInto(const std::string& directory, Snapshot* snapshot)
     }
     closedir(dir);
     return status;
+}
+
+// Unlinks just the .wav for an already-resolved base_path, leaving .json/.txt in place. Narrower
+// than DeleteRecordingOnMountedFilesystem's soft-delete (which moves all 3 sidecars to /trash):
+// archiving reclaims SD space in place rather than moving the recording anywhere.
+void DeleteRecordingAudioFile(const std::string& base_path)
+{
+    const std::string wav_path = base_path + ".wav";
+    errno = 0;
+    if (unlink(wav_path.c_str()) != 0 && errno != ENOENT) {
+        ESP_LOGW(kTag, "Archive audio delete failed: path=%s errno=%d (%s)", wav_path.c_str(),
+                 errno, std::strerror(errno));
+        // Not fatal: the metadata write still proceeds; unlink is idempotent so a later sweep
+        // or manual archive retry harmlessly tries again.
+    }
+}
+
+// Runs once per archive scan, before the counting pass, so an item that ages out during this
+// exact scan is correctly tallied as archived rather than active-completed. Own opendir("todos")
+// pass, deliberately kept separate from ScanDirectoryInto's read-only counting loop rather than
+// interleaving a mutation into it.
+bool ApplyTodoArchiveAgingOnMountedFilesystem(const std::string& mount_point)
+{
+    int archive_after_days = 0;
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        archive_after_days = s_archive_after_days;
+    }
+    if (archive_after_days <= 0) {
+        return false;  // "Never"
+    }
+
+    const int64_t now_s = static_cast<int64_t>(std::time(nullptr));
+    if (now_s < kMinValidEpoch) {
+        return false;  // clock not valid yet; don't misjudge ages against an unset RTC
+    }
+
+    const std::string directory = JoinPath(mount_point, "todos");
+    errno = 0;
+    DIR* dir = opendir(directory.c_str());
+    if (dir == nullptr) {
+        return false;  // ENOENT or transient; the next scan retries, best-effort
+    }
+
+    bool any_changed = false;
+    while (true) {
+        errno = 0;
+        struct dirent* entry = readdir(dir);
+        if (entry == nullptr) {
+            break;
+        }
+
+        const std::string name = entry->d_name;
+        if (name.size() < 6 || name.compare(name.size() - 5, 5, ".json") != 0) {
+            continue;
+        }
+
+        const std::string metadata_path = JoinPath(directory, name);
+        std::string json;
+        ArchiveMetadata metadata = {};
+        if (!ReadTextFile(metadata_path, &json) || !ParseMetadata(json, &metadata)) {
+            continue;
+        }
+        if (metadata.tag != RecordingTag::kTask || metadata.archived || !metadata.completed) {
+            continue;
+        }
+
+        bool needs_write = false;
+        if (metadata.completed_unix_seconds <= 0) {
+            // Legacy entry completed before this field existed: start the aging clock now
+            // rather than treating "unknown" as "ancient" and archiving it immediately.
+            metadata.completed_unix_seconds = now_s;
+            needs_write = true;
+        }
+
+        const int64_t age_days = (now_s - metadata.completed_unix_seconds) / 86400;
+        if (age_days >= archive_after_days) {
+            metadata.archived = true;
+            metadata.archived_unix_seconds = now_s;
+            needs_write = true;
+            any_changed = true;
+            const std::string base_path = JoinPath(directory, name.substr(0, name.size() - 5));
+            DeleteRecordingAudioFile(base_path);
+        }
+
+        if (needs_write) {
+            const std::string updated = SerializeMetadata(metadata);
+            WriteFileBytes(metadata_path, updated.data(), updated.size());
+        }
+    }
+    closedir(dir);
+    return any_changed;
 }
 
 struct ScanContext {
@@ -671,6 +799,7 @@ esp_err_t ScanArchiveOnMountedFilesystem(const char* mount_point, void* context)
     // Reset so a remount-and-retry inside RunWithMountedFilesystem can't double-count.
     *scan->snapshot = {};
     scan->snapshot->initialized = true;
+    (void)ApplyTodoArchiveAgingOnMountedFilesystem(mount_point);
     esp_err_t err = ScanDirectoryInto(JoinPath(mount_point, "recordings"), scan->snapshot);
     if (err == ESP_OK) {
         err = ScanDirectoryInto(JoinPath(mount_point, "todos"), scan->snapshot);
@@ -685,6 +814,8 @@ struct MutateContext {
     const char* recording_id = nullptr;
     bool set_completed = false;
     bool completed = false;
+    bool set_archived = false;
+    bool archived = false;
     bool set_follow_up = false;
     bool follow_up = false;
     bool follow_up_completed = false;
@@ -716,6 +847,22 @@ esp_err_t MutateMetadataOnMountedFilesystem(const char* mount_point, void* conte
 
     if (mutate->set_completed) {
         metadata.completed = mutate->completed;
+        metadata.completed_unix_seconds =
+            mutate->completed ? static_cast<int64_t>(std::time(nullptr)) : 0;
+        if (!mutate->completed) {
+            // Un-completing also un-archives -- this is the Restore-from-Archived path. The
+            // audio, if already deleted by a prior archive, is not restored.
+            metadata.archived = false;
+            metadata.archived_unix_seconds = 0;
+        }
+    }
+    if (mutate->set_archived) {
+        metadata.archived = mutate->archived;
+        metadata.archived_unix_seconds =
+            mutate->archived ? static_cast<int64_t>(std::time(nullptr)) : 0;
+        if (mutate->archived) {
+            DeleteRecordingAudioFile(base_path);
+        }
     }
     if (mutate->set_follow_up) {
         metadata.follow_up = mutate->follow_up;
@@ -1000,6 +1147,7 @@ bool SnapshotCountsEqual(const Snapshot& lhs, const Snapshot& rhs)
            lhs.follow_up_recording_count == rhs.follow_up_recording_count &&
            lhs.completed_todo_count == rhs.completed_todo_count &&
            lhs.incomplete_todo_count == rhs.incomplete_todo_count &&
+           lhs.archived_todo_count == rhs.archived_todo_count &&
            lhs.pending_transcription_count == rhs.pending_transcription_count;
 }
 
@@ -1025,6 +1173,7 @@ bool LoadSnapshotFromNvs(Snapshot* out)
     out->follow_up_recording_count = counts.follow_up_recording_count;
     out->completed_todo_count = counts.completed_todo_count;
     out->incomplete_todo_count = counts.incomplete_todo_count;
+    out->archived_todo_count = counts.archived_todo_count;
     out->pending_transcription_count = counts.pending_transcription_count;
     return true;
 }
@@ -1043,12 +1192,42 @@ void SaveSnapshotToNvs(const Snapshot& snapshot)
         .follow_up_recording_count = snapshot.follow_up_recording_count,
         .completed_todo_count = snapshot.completed_todo_count,
         .incomplete_todo_count = snapshot.incomplete_todo_count,
+        .archived_todo_count = snapshot.archived_todo_count,
         .pending_transcription_count = snapshot.pending_transcription_count,
     };
     if (nvs_set_blob(handle, kSnapshotNvsKey, &counts, sizeof(counts)) == ESP_OK) {
         nvs_commit(handle);
     }
     nvs_close(handle);
+}
+
+// Loads the archive-after-days setting into s_archive_after_days, falling back to the Kconfig
+// default when NVS has no saved override yet. Mirrors timezone_service's
+// LoadSettingsFromStorage/SaveSettingsToStorageLocked shape.
+void LoadArchiveConfigFromStorage()
+{
+    int32_t days = CONFIG_FOLLOWUP_TODO_ARCHIVE_AFTER_DAYS;
+    nvs_handle_t handle = 0;
+    if (nvs_open(kArchiveConfigNvsNamespace, NVS_READONLY, &handle) == ESP_OK) {
+        (void)nvs_get_i32(handle, kArchiveAfterDaysNvsKey, &days);
+        nvs_close(handle);
+    }
+    std::lock_guard<std::mutex> lock(s_mutex);
+    s_archive_after_days = days;
+}
+
+bool SaveArchiveConfigToStorage(int days)
+{
+    nvs_handle_t handle = 0;
+    if (nvs_open(kArchiveConfigNvsNamespace, NVS_READWRITE, &handle) != ESP_OK) {
+        return false;
+    }
+    esp_err_t err = nvs_set_i32(handle, kArchiveAfterDaysNvsKey, static_cast<int32_t>(days));
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return err == ESP_OK;
 }
 
 // Scan the SD archive and adopt the result. Persists to NVS and notifies subscribers only when
@@ -1264,8 +1443,11 @@ void Init()
     Snapshot cached = {};
     cached.initialized = true;
     cached.available = LoadSnapshotFromNvs(&cached);
-    std::lock_guard<std::mutex> lock(s_mutex);
-    s_snapshot = cached;
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_snapshot = cached;
+    }
+    LoadArchiveConfigFromStorage();
 }
 
 bool MarkRecordingCompleted(const std::string& recording_id, bool completed)
@@ -1282,6 +1464,44 @@ bool MarkRecordingCompleted(const std::string& recording_id, bool completed)
         (void)Refresh();
     }
     return context.applied;
+}
+
+bool MarkRecordingArchived(const std::string& recording_id, bool archived)
+{
+    if (recording_id.empty()) {
+        return false;
+    }
+    MutateContext context = {};
+    context.recording_id = recording_id.c_str();
+    context.set_archived = true;
+    context.archived = archived;
+    (void)storage_service::RunWithMountedFilesystem(MutateMetadataOnMountedFilesystem, &context);
+    if (context.applied) {
+        (void)Refresh();
+    }
+    return context.applied;
+}
+
+int GetArchiveAfterDays()
+{
+    std::lock_guard<std::mutex> lock(s_mutex);
+    return s_archive_after_days;
+}
+
+bool SetArchiveAfterDays(int days)
+{
+    if (days < 0 || days > kMaxArchiveAfterDays) {
+        return false;
+    }
+    if (!SaveArchiveConfigToStorage(days)) {
+        return false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_archive_after_days = days;
+    }
+    (void)Refresh();
+    return true;
 }
 
 bool ClearPendingTranscription(const std::string& recording_id)

@@ -313,6 +313,9 @@ ButtonResult ApplySettingsActivateResult(const settings_page_interactions::Activ
         // Deferred so the screen change happens after input dispatch; app_shell polls for it.
         onboarding_page_runtime::RequestManualLaunch();
     };
+    callbacks.show_archive_after_modal = []() {
+        (void)settings_page_runtime::ShowArchiveAfterModal();
+    };
     settings_page_interactions::ApplyPrimaryActivateResult(activation, callbacks);
     if (result.footer_item != footer_runtime::FooterFocusItem::kNone) {
         result.interaction_result.play_feedback = false;
@@ -1028,6 +1031,9 @@ ButtonResult ApplyTodosActivateResult(const todos_page_interactions::ActivateRes
         result.footer_item = footer_runtime::FooterFocusItem::kTime;
     };
     callbacks.open_item_actions = []() { (void)todos_page_runtime::ShowItemActionsModal(); };
+    // No footer_item set here: toggling the segment stays on the Todos screen, it doesn't
+    // navigate away, so the repaint ToggleSegment() already requests is the only one needed.
+    callbacks.toggle_segment = []() { todos_page_runtime::ToggleSegment(); };
     todos_page_interactions::ApplyPrimaryActivateResult(activation, callbacks);
     if (result.footer_item != footer_runtime::FooterFocusItem::kNone) {
         result.interaction_result.play_feedback = false;

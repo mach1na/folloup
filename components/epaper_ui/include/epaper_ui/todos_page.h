@@ -6,6 +6,7 @@
 
 #include "epaper_ui/global_footer.h"
 #include "epaper_ui/notes_page.h"
+#include "epaper_ui/segment_control.h"
 #include "epaper_ui/status_bar.h"
 #include "epaper_ui/timeline_list.h"
 
@@ -14,6 +15,9 @@ namespace epaper_ui {
 struct TodosPageState {
     int navigation_focus_index = -1;
     std::string title_text = "Todos";
+    // Current/Archived switch, drawn below the title -- same widget/placement as the Summarize
+    // page's Notes/Todos segment control.
+    SegmentControlState segment_control = {};
     TimelineListState timeline = {};
 
     bool operator==(const TodosPageState& other) const = default;

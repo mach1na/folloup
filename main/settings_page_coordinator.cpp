@@ -36,6 +36,16 @@ std::string FormatStorageBytes(uint64_t bytes)
     return std::string(buffer);
 }
 
+std::string FormatArchiveAfterLabel(int days)
+{
+    if (days <= 0) {
+        return "Never";
+    }
+    char buffer[24] = {};
+    std::snprintf(buffer, sizeof(buffer), "%d days", days);
+    return std::string(buffer);
+}
+
 }  // namespace
 
 SettingsPageCoordinator::SettingsPageCoordinator() = default;
@@ -62,7 +72,8 @@ bool SettingsPageCoordinator::IsRoleFocused(page_navigation::NavigationItemRole 
 
 epaper_ui::SettingsPageState SettingsPageCoordinator::BuildState(
     const wifi_service::UiState& wifi_state,
-    const storage_service::Snapshot& storage_snapshot) const
+    const storage_service::Snapshot& storage_snapshot,
+    int archive_after_days) const
 {
     storage_service::StorageStats storage_stats = {};
     const bool allow_live_storage_stats =
@@ -125,6 +136,12 @@ epaper_ui::SettingsPageState SettingsPageCoordinator::BuildState(
         .label_text = "Manual",
         .selected = IsRoleFocused(
             page_navigation::NavigationItemRole::kSettingsManualOnboardingButton),
+    };
+    state.archive_after_input = {
+        .label_text = "Archive todos after",
+        .value_text = FormatArchiveAfterLabel(archive_after_days),
+        .focused =
+            IsRoleFocused(page_navigation::NavigationItemRole::kSettingsArchiveAfterInput),
     };
     return state;
 }

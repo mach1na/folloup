@@ -67,6 +67,10 @@ NavigationModel BuildSettingsPageNavigationModel()
             NavigationItemSection::kSettingsPageMenu,
             NavigationItemRole::kSettingsManualOnboardingButton,
             4);
+    AddItem(model,
+            NavigationItemSection::kSettingsPageMenu,
+            NavigationItemRole::kSettingsArchiveAfterInput,
+            5);
     AddItem(model, NavigationItemSection::kFooter, NavigationItemRole::kFooterSettings, 1);
     AddItem(model, NavigationItemSection::kFooter, NavigationItemRole::kFooterWifi, 2);
     AddItem(model, NavigationItemSection::kFooter, NavigationItemRole::kFooterTime, 3);
@@ -206,6 +210,10 @@ NavigationModel BuildTodosPageNavigationModel(int timeline_group_count)
     NavigationModel model = {};
     model.scope = NavigationScope::kTodos;
 
+    // Segment control (Current/Archived) is always item 0 -- the first focus target on page
+    // entry, matching Summarize's segment-control-first ordering.
+    AddItem(model, NavigationItemSection::kTodosPageControls,
+            NavigationItemRole::kTodosPageSegmentControl, 0);
     const int group_count = timeline_group_count > 0 ? timeline_group_count : 0;
     for (int index = 0; index < group_count; ++index) {
         AddItem(model, NavigationItemSection::kTodosPageTimelineGroups,

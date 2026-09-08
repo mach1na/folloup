@@ -17,7 +17,8 @@ public:
     bool IsRoleFocused(page_navigation::NavigationItemRole role) const;
 
     epaper_ui::SettingsPageState BuildState(const wifi_service::UiState& wifi_state,
-                                            const storage_service::Snapshot& storage_snapshot) const;
+                                            const storage_service::Snapshot& storage_snapshot,
+                                            int archive_after_days) const;
 
     const page_navigation::NavigationModel& navigation_model() const { return navigation_model_; }
     const page_navigation::RovingFocus& focus() const { return focus_; }

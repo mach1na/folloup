@@ -17,6 +17,7 @@ constexpr int kSectionGap = design::spacing::k24;
 constexpr int kStorageStatusGap = design::spacing::k12;
 constexpr int kStorageButtonTopGap = design::spacing::k16;
 constexpr int kButtonStackGap = design::spacing::k12;
+constexpr int kTodosHeadingGap = 0;
 
 struct Layout {
     UiRect wifi_toggle = {};
@@ -25,6 +26,7 @@ struct Layout {
     UiRect enable_otg_button = {};
     UiRect format_sd_button = {};
     UiRect manual_onboarding_button = {};
+    UiRect archive_after_input = {};
 };
 
 Layout BuildLayout(int portrait_width, int portrait_height, const SettingsPageState& state)
@@ -75,6 +77,13 @@ Layout BuildLayout(int portrait_width, int portrait_height, const SettingsPageSt
         ButtonBounds(page_x, format_sd_button.bottom() + kButtonStackGap,
                      state.manual_onboarding_button, manual_button_style);
 
+    const int todos_heading_y = manual_onboarding_button.bottom() + kSectionGap;
+    TextInputStyle archive_after_style = {};
+    archive_after_style.width = page_width;
+    const UiRect archive_after_input =
+        SelectInputBounds(page_x, todos_heading_y + LineHeight(kSectionRole) + kTodosHeadingGap,
+                          state.archive_after_input, archive_after_style);
+
     return {
         .wifi_toggle = wifi_toggle,
         .access_point_toggle = access_point_toggle,
@@ -82,6 +91,7 @@ Layout BuildLayout(int portrait_width, int portrait_height, const SettingsPageSt
         .enable_otg_button = enable_otg_button,
         .format_sd_button = format_sd_button,
         .manual_onboarding_button = manual_onboarding_button,
+        .archive_after_input = archive_after_input,
     };
 }
 
@@ -104,6 +114,8 @@ UiRect SettingsPageItemBounds(int portrait_width,
             return layout.format_sd_button;
         case SettingsPageItemId::kManualOnboardingButton:
             return layout.manual_onboarding_button;
+        case SettingsPageItemId::kArchiveAfterInput:
+            return layout.archive_after_input;
         case SettingsPageItemId::kNone:
         default:
             return {};
@@ -135,6 +147,7 @@ bool HitTestSettingsPageItem(int portrait_width,
         SettingsPageItemId::kEnableOtgButton,
         SettingsPageItemId::kFormatSdButton,
         SettingsPageItemId::kManualOnboardingButton,
+        SettingsPageItemId::kArchiveAfterInput,
     };
     for (SettingsPageItemId candidate : kItems) {
         const UiRect bounds =
@@ -290,6 +303,29 @@ void DrawSettingsPage(uint8_t* framebuffer,
                layout.manual_onboarding_button.y,
                state.manual_onboarding_button,
                manual_button_style);
+
+    DrawTypographyText(framebuffer,
+                       raw_width,
+                       raw_height,
+                       portrait_width,
+                       portrait_height,
+                       title_x,
+                       layout.archive_after_input.y - kTodosHeadingGap - LineHeight(kSectionRole),
+                       "Todos",
+                       kSectionRole,
+                       design::color::kBlack);
+
+    TextInputStyle archive_after_style = {};
+    archive_after_style.width = layout.archive_after_input.width;
+    DrawSelectInput(framebuffer,
+                    raw_width,
+                    raw_height,
+                    portrait_width,
+                    portrait_height,
+                    layout.archive_after_input.x,
+                    layout.archive_after_input.y,
+                    state.archive_after_input,
+                    archive_after_style);
 
     DrawGlobalFooter(framebuffer,
                      raw_width,

@@ -24,6 +24,16 @@ footer_runtime::ProjectionState BuildFooterProjectionState();
 page_actions::FocusUpdateOutcome FocusFooterItem(footer_runtime::FooterFocusItem item);
 void ResetFocus();
 
+// Opens the "Archive todos after" picker (7/14/30/60/90 days, or Never), pre-selected to the
+// currently saved value.
+esp_err_t ShowArchiveAfterModal();
+// Dispatch the archive-after-days modal selection. Returns true if that modal was pending (so
+// the shared submit chain in app_shell stops here).
+bool HandleSelectModalSubmit(int selected_index);
+// Clears the pending-modal flag without applying a selection (e.g. a different modal preempted
+// it) so a later, unrelated select-modal submission can't be misrouted here.
+void ClearPendingSelectModal();
+
 }  // namespace settings_page_runtime
 
 #endif  // SETTINGS_PAGE_RUNTIME_H_

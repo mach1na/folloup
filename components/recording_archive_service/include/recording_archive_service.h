@@ -31,6 +31,13 @@ struct RecordingMetadata {
     bool pending_transcription = false;
     RecordingTag tag = RecordingTag::kNote;
     bool completed = false;
+    // Set to std::time(nullptr) the moment `completed` first flips true (cleared back to 0 if
+    // un-completed); age-based archiving is measured from this, not `created_unix_seconds`. 0
+    // means "not completed" or, for a todo completed before this field existed, "unknown" -- the
+    // archive sweep stamps it to "now" the first time it sees that case (see recording_archive_service.cpp).
+    int64_t completed_unix_seconds = 0;
+    bool archived = false;
+    int64_t archived_unix_seconds = 0;
     bool follow_up = false;
     bool follow_up_completed = false;
 };
@@ -84,8 +91,12 @@ struct Snapshot {
     int notes_recording_count = 0;
     int todo_recording_count = 0;
     int follow_up_recording_count = 0;
+    // completed_todo_count/incomplete_todo_count/todo_recording_count only ever count *active*
+    // (non-archived) todos -- an archived todo is tallied in archived_todo_count instead, so
+    // dashboards/badges built from these fields automatically stop counting archived items.
     int completed_todo_count = 0;
     int incomplete_todo_count = 0;
+    int archived_todo_count = 0;
     int pending_transcription_count = 0;
 };
 
@@ -129,6 +140,19 @@ bool UpdateRecordingTag(const std::string& recording_id, RecordingTag tag);
 // Ends the one automatic retry attempt for a note whose transcription failed: clears the
 // pending flag but leaves has_transcript false so the manual "Transcribe" button still shows.
 bool ClearPendingTranscription(const std::string& recording_id);
+// Manually archive (or restore) a todo now, ahead of (or instead of) the age-based sweep.
+// Archiving deletes the recording's .wav in place (its .json/.txt sidecars stay under todos/) so
+// it keeps showing up, just without audio. Restoring (archived=false) does not bring the audio
+// back. Does not itself check `completed` -- callers (the Todos page's "Archive now" action) only
+// offer this for already-completed rows.
+bool MarkRecordingArchived(const std::string& recording_id, bool archived);
+
+// Days after completion before a completed todo is automatically archived by the next archive
+// scan (0 = never). Falls back to CONFIG_FOLLOWUP_TODO_ARCHIVE_AFTER_DAYS until overridden.
+int GetArchiveAfterDays();
+// Persists a new archive-after-days threshold (0-3650, 0 = never) and triggers an immediate
+// re-scan so lowering it is reflected right away. Returns false for an out-of-range value.
+bool SetArchiveAfterDays(int days);
 
 SaveResult SaveClip(const recording_service::RecordedClip& clip,
                     const SaveOptions& options = {});

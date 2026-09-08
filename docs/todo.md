@@ -873,6 +873,145 @@ its Details page, a one-off cleanup rather than a bug. The visual layout
 itself (spacing/wrapping/icon placement) has not yet been separately
 checked against the physical panel.
 
+## ~~Completed todos never leave the Todos list or get archived~~ — implemented, not yet on-device verified
+
+Marking a todo complete (`main/todos_page_runtime.cpp:361-369` ->
+`recording_archive_service::MarkRecordingCompleted`,
+`components/recording_archive_service/recording_archive_service.cpp:1271-1285`)
+only flipped a `completed` bool on the recording's metadata sidecar. Nothing
+else changed: `TodosPageCoordinator::BuildGroups`
+(`main/todos_page_coordinator.cpp:36-98`) listed every `kTask`-tagged
+recording regardless of `completed`, so the Todos count/list included
+completed items forever, shown checked. There was no expiry/retention/archive
+concept anywhere in the codebase (confirmed via grep) — the only removal path
+was the unrelated, explicit Delete action, which moves the sidecar files to
+`/trash/todos`.
+
+Design settled through a planning conversation before any code was written
+(see chat history): scope limited to Tasks (not Notes/Follow-up); the age
+check runs lazily inside `recording_archive_service`'s existing scan pass
+rather than a new periodic sweep task (none exists anywhere in this codebase);
+archiving is both automatic (age-based) and manual ("Archive now"); and rather
+than a 4th near-identical page trio (see the page-trio duplication item
+above), the Archived view is a mode within the existing Todos screen/trio.
+The Active/Archived switch itself went through two iterations: the first
+build wired it to the footer's previously wired-but-never-shown Folder icon;
+after trying that on-device, Craig asked for a segment control at the top of
+the screen instead, matching the Notes/Todos switch already on the Summarize
+page, which is what actually shipped (see "Implemented" below).
+
+Implemented:
+- `RecordingMetadata` gained `completed_unix_seconds` (stamped the moment
+  `completed` first flips true, in `MutateMetadataOnMountedFilesystem` --
+  age is measured from actual completion time, not `created_unix_seconds`),
+  `archived`, and `archived_unix_seconds`. A legacy completed todo with no
+  `completed_unix_seconds` gets it stamped to "now" the first time the sweep
+  sees it, rather than being treated as infinitely old and archiving
+  immediately on upgrade.
+- New `ApplyTodoArchiveAgingOnMountedFilesystem` sweep runs at the start of
+  every archive scan (`ScanArchiveOnMountedFilesystem`, already invoked by
+  `RefreshAsync`/`Refresh` -- no new task/timer): for each completed,
+  non-archived Task past the configured delay, it flips `archived`, stamps
+  `archived_unix_seconds`, and deletes just the `.wav` in place via the new
+  `DeleteRecordingAudioFile` (unlike Delete, nothing moves to `/trash` --
+  `.json`/`.txt` stay under `/todos`, so `has_audio_file`, already computed
+  live via `stat()`, naturally goes false and the Details page's Play button
+  already hides on that condition).
+- New `MarkRecordingArchived(id, archived)` mutator (same
+  `MutateContext`/`RunWithMountedFilesystem` shape as the existing
+  mutators) backs both the sweep and a new "Archive now" item action, shown
+  only for a completed-but-not-yet-archived row. Un-completing an archived
+  row (the existing "Mark incomplete" action) doubles as Restore -- it clears
+  `archived` too, though the deleted audio does not come back.
+- Archive-after-days setting: `CONFIG_FOLLOWUP_TODO_ARCHIVE_AFTER_DAYS`
+  Kconfig default (7 days), NVS-overridable (new `rec_archive_cfg`/`days`
+  namespace, deliberately separate from the existing `rec_archive`/`counts`
+  cached-counts blob) via `recording_archive_service::GetArchiveAfterDays()`/
+  `SetArchiveAfterDays()`, following `timezone_service`'s Kconfig-default +
+  NVS-override pattern rather than the auto-sleep timeouts' compile-time-only
+  one, since this needed to be user-adjustable on-device.
+- `TodosPageCoordinator` gained a `TodosPageViewMode {kActive, kArchived}`;
+  `BuildGroups` filters on `archived` matching the mode. The switch is a
+  `SegmentControlState` ("Current"/"Archived") drawn between the title and
+  the timeline -- same widget, spacing, and enter-move-exit interaction
+  (OK enters it, UP/DOWN switches segments live, OK or hold-DOWN exits) as
+  the Summarize page's existing Notes/Todos segment control, right down to
+  reusing its `RovingFocus`-based `EnterSegmentControl`/`ExitSegmentControl`/
+  `MoveFocus` pattern. It's always the first focusable item on the page
+  (`NavigationItemRole::kTodosPageSegmentControl`, item index 0 in
+  `BuildTodosPageNavigationModel`), so a background archive-changed refresh
+  never silently moves focus off of it. The coordinator now caches the last
+  `ListRecordings()` result (`recordings_`) so switching segments live-
+  rebuilds the visible groups with no extra SD read.
+
+  First iteration wired this toggle to the footer's previously
+  wired-but-never-shown Folder icon (`GlobalFooterItemId::kFolder`) instead
+  -- that wiring (`NavigationItemRole::kFooterFolder`, `show_folder` on
+  `ScreenId::kTodos`, etc.) was fully reverted in favor of the segment
+  control after on-device feedback. Worth keeping in mind for future work:
+  the Folder icon's stale pending-transcription badge wiring, found and
+  removed from `footer_runtime.cpp` while building the first iteration,
+  stays removed -- it was already dead (`show_folder` is false everywhere
+  again) and wrong for either purpose (see the "Offline transcription
+  queue" item above for why pending-transcription counts live on the
+  status bar's `kFile` icon instead).
+- Settings screen gained an "Archive todos after" picker (7/14/30/60/90 days
+  or Never), reusing the Time page's `SelectInput`+`SelectModal` timezone-
+  picker pattern rather than free-form numeric entry (no numeric-input
+  precedent existed on Settings).
+- A pre-existing, unrelated bug surfaced while wiring the Restore path:
+  `ResolveExistingBasePath` only matched a recording via its `.wav`, so any
+  mutation (`MarkRecordingCompleted`, `MarkRecordingFollowUp`, etc.) on an
+  audio-less archived entry would have failed to resolve at all. Fixed to
+  match on either `.wav` or `.json`, mirroring how
+  `DeleteRecordingOnMountedFilesystem` already anchors on any sidecar.
+- `docs/app-architecture.md` updated: the new NVS namespace, the new Kconfig
+  default (and its NVS-override relationship to `rec_archive_cfg`), and a
+  note that archiving deletes the `.wav` in place rather than moving
+  anything to `/trash`.
+
+Not yet done: on-device verification (build/flash/manual test of the sweep,
+the manual archive action, the footer toggle, the Settings picker, and the
+legacy-metadata migration path) -- CLAUDE.md's build step is only run when
+explicitly requested, and that hasn't happened yet for this change.
+
+## Lock screen todo summary sometimes doesn't appear after PWR forces sleep
+
+Craig noticed on-device: pressing `PWR` sometimes locks the device and
+forces display sleep (per the "Lock screen should trigger display/light
+sleep on entry" item above), but the todo summary doesn't render on the
+frozen lock screen — putting the display back to sleep and waking it again
+usually fixes it.
+
+Likely cause, from reading the code (not yet reproduced/confirmed on-device):
+`lock_screen_runtime::Show()` (`main/lock_screen_runtime.cpp:278-323`) paints
+synchronously from whatever `s_state.pending_todo_titles` currently holds,
+then immediately calls `device_sleep_service::ForceDisplaySleep()` (line
+321). Unlike the normal inactivity-driven sleep path, `ForceDisplaySleep()`
+(`components/device_sleep_service/device_sleep_service.cpp:471-504`) has no
+`BlockerReason::kDisplayRefresh` check, so it doesn't wait for a
+still-in-flight repaint. If an archive-changed event's
+`RefreshTodoSummary()` (`lock_screen_runtime.cpp:370-389`, worker at
+141-200) is mid-scan when the lock happens, `Show()` paints stale/empty
+data; by the time the worker finishes and pushes the corrected state with a
+partial-refresh request (line 190-195), the panel has very likely already
+gone to sleep, and `DisplayTask` (`components/display_service/display_service.cpp:1103-1192`)
+silently drops any queued command while `s_display_sleeping` (logs
+"suppressed while display sleeping" only) — so the correction never paints
+until the next real wake, which does an unconditional full refresh. This
+matches "sleep/wake fixes it" exactly.
+
+Secondary contributing factor: `RefreshTodoSummary()`'s atomic in-flight
+guard (`lock_screen_runtime.cpp:372,386-388`) drops a newer archive-change
+trigger that lands while a scan is already running, so the running task
+still pushes its already-stale snapshot rather than the latest one.
+
+Fix likely needs `ForceDisplaySleep()` (or its caller) to wait for/avoid
+racing an in-flight todo-summary refresh, and/or `Show()` to kick a
+synchronous-enough refresh before painting rather than relying on
+whatever's cached. Needs on-device reproduction to confirm before
+implementing.
+
 ## `FitLabelText` still independently reimplemented in two places
 
 While adding the lock screen todo summary above, `list_item_header.cpp`'s

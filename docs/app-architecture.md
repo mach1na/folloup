@@ -809,6 +809,9 @@ Runtime-persisted settings live in service-owned NVS namespaces:
 - `wifi`: `ssid`, `password`
 - `timezone`: `enabled`, `tz_name`, `location`, `time_src`, `ntp_sync`,
   `ntp_epoch`
+- `rec_archive_cfg`: `days` (todo archive-after-days setting, `recording_archive_service`;
+  deliberately a separate namespace from `recording_archive_service`'s own internal
+  `rec_archive`/`counts` cached-counts blob, which isn't a user setting)
 
 The build-time Wi-Fi/time defaults live under `Folloup Settings`:
 
@@ -1142,6 +1145,14 @@ Current scope:
   the source-app directory layout:
   `/recordings`, `/todos`, `/summaries`, `/files`, `/trash`,
   `/trash/recordings`, and `/trash/todos`
+
+`recording_archive_service` archives a completed todo (age-based, or via a
+manual "Archive now") by deleting only its `.wav` **in place** under `/todos`
+— unlike Delete, which moves all three sidecars into `/trash/todos`, archiving
+never moves anything. The `.json`/`.txt` sidecars stay put so the entry keeps
+listing (now audio-less, `has_audio_file` computed live and simply reports
+false); the metadata JSON's `archived`/`archived_unix_seconds` fields record
+the change.
 - publish coarse format lifecycle state only: started, succeeded, or failed
 - avoid progress-checkpoint UI churn during format; the current product flow
   shows a single "Formatting in progress. Please wait..." modal until the
@@ -1492,6 +1503,11 @@ Project-specific Kconfig options live under `Folloup Settings`. Auto-sleep
 currently exposes reproducible build-time defaults for display sleep and light
 sleep timeout seconds; `0` disables the corresponding stage, and a nonzero light
 sleep timeout must be greater than or equal to the display sleep timeout.
+`CONFIG_FOLLOWUP_TODO_ARCHIVE_AFTER_DAYS` similarly seeds the default "archive a
+completed todo after N days" delay (`0` disables automatic archiving); unlike
+the auto-sleep timeouts, this one has a runtime NVS override (`rec_archive_cfg`
+above) that the Settings page's "Archive todos after" picker can change without
+a reflash.
 
 The partition table currently contains:
 

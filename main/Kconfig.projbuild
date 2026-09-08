@@ -78,4 +78,14 @@ menu "Folloup Settings"
             sleep and light sleep are enabled, this value must be greater than
             or equal to the display sleep timeout.
 
+    config FOLLOWUP_TODO_ARCHIVE_AFTER_DAYS
+        int "Default todo archive delay (days)"
+        range 0 3650
+        default 7
+        help
+            Days after completion before a completed todo is automatically
+            archived (its audio deleted, transcript kept). 0 disables automatic
+            archiving ("Never"). Overridden by a runtime NVS setting once
+            changed from the Settings page.
+
 endmenu
