@@ -12,7 +12,7 @@ using recording_archive_service::RecordingTag;
 
 bool IsNotesTag(RecordingTag tag)
 {
-    // Notes groups Note + Idea; Task lives on the (future) Todos page.
+    // Notes groups Note + Idea; Task lives on the Todos page.
     return tag == RecordingTag::kNote || tag == RecordingTag::kIdea;
 }
 
@@ -31,11 +31,17 @@ const EmbeddedImageAsset* PinIcon()
 
 }  // namespace
 
-NotesPageCoordinator::NotesPageCoordinator() = default;
-
-void NotesPageCoordinator::BuildGroups(const std::vector<RecordingEntry>& recordings)
+NotesPageCoordinator::NotesPageCoordinator()
+    : focus_(page_navigation::NavigationItemSection::kNotesPageTimelineGroups,
+             page_navigation::NavigationItemRole::kNotesPageTimelineGroup)
 {
-    timeline_groups_.clear();
+    focus_.Show({}, page_navigation::BuildNotesPageNavigationModel(0));
+}
+
+std::vector<NotesPageCoordinator::TimelineGroup> NotesPageCoordinator::BuildGroups(
+    const std::vector<RecordingEntry>& recordings) const
+{
+    std::vector<TimelineGroup> groups;
 
     std::vector<const RecordingEntry*> sorted;
     sorted.reserve(recordings.size());
@@ -56,16 +62,16 @@ void NotesPageCoordinator::BuildGroups(const std::vector<RecordingEntry>& record
                 : timeline_format::FormatDateLabel(entry.metadata.created_local_date);
 
         int group_index = -1;
-        for (size_t index = 0; index < timeline_groups_.size(); ++index) {
-            if (timeline_groups_[index].date_key == date_key) {
+        for (size_t index = 0; index < groups.size(); ++index) {
+            if (groups[index].date_key == date_key) {
                 group_index = static_cast<int>(index);
                 break;
             }
         }
         if (group_index < 0) {
-            timeline_groups_.push_back(
+            groups.push_back(
                 {date_key, timeline_format::FormatDateLabel(entry.metadata.created_local_date), {}});
-            group_index = static_cast<int>(timeline_groups_.size()) - 1;
+            group_index = static_cast<int>(groups.size()) - 1;
         }
 
         const std::string transcript = timeline_format::TrimTranscript(entry.transcript_text);
@@ -86,270 +92,59 @@ void NotesPageCoordinator::BuildGroups(const std::vector<RecordingEntry>& record
         timeline_entry.item.header.tag_text = timeline_format::TagText(entry.metadata.tag);
         timeline_entry.item.body_text = has_transcription ? transcript : "Audio only note.";
         timeline_entry.item.accessory.kind = epaper_ui::ListItemAccessoryKind::kNone;
-        timeline_groups_[static_cast<size_t>(group_index)].entries.push_back(
-            std::move(timeline_entry));
+        groups[static_cast<size_t>(group_index)].entries.push_back(std::move(timeline_entry));
     }
 
-    if (timeline_groups_.empty()) {
-        timeline_groups_.push_back({"today", "Today", {}});
+    if (groups.empty()) {
+        groups.push_back({"today", "Today", {}});
     }
+    return groups;
 }
 
 void NotesPageCoordinator::Show(const std::vector<RecordingEntry>& recordings)
 {
-    item_list_active_ = false;
-    active_group_index_ = -1;
-    selected_recording_id_.clear();
-    BuildGroups(recordings);
-    navigation_model_ = page_navigation::BuildNotesPageNavigationModel(TimelineGroupCount());
-    focus_.Configure(navigation_model_.item_count, 0);
-    item_focus_.Configure(0, 0);
-    visible_group_index_ = TimelineGroupCount() > 0 ? 0 : -1;
+    std::vector<TimelineGroup> groups = BuildGroups(recordings);
+    const int group_count = static_cast<int>(groups.size());
+    focus_.Show(std::move(groups), page_navigation::BuildNotesPageNavigationModel(group_count));
 }
 
 void NotesPageCoordinator::RefreshFromArchive(const std::vector<RecordingEntry>& recordings)
 {
-    const bool was_active = item_list_active_;
-    const std::string selected_id = selected_recording_id_;
-    const int focused_group = FocusedTimelineGroupIndex();
-    std::string focused_date_key;
-    if (focused_group >= 0 && focused_group < TimelineGroupCount()) {
-        focused_date_key = timeline_groups_[static_cast<size_t>(focused_group)].date_key;
-    }
-
-    item_list_active_ = false;
-    active_group_index_ = -1;
-    BuildGroups(recordings);
-    navigation_model_ = page_navigation::BuildNotesPageNavigationModel(TimelineGroupCount());
-    focus_.Configure(navigation_model_.item_count, 0);
-    item_focus_.Configure(0, 0);
-    visible_group_index_ = TimelineGroupCount() > 0 ? 0 : -1;
-
-    if (was_active && !selected_id.empty() && FocusRecording(selected_id, true)) {
-        return;
-    }
-    if (!focused_date_key.empty()) {
-        for (size_t index = 0; index < timeline_groups_.size(); ++index) {
-            if (timeline_groups_[index].date_key == focused_date_key) {
-                SetFocusIndex(static_cast<int>(index));
-                break;
-            }
-        }
-    }
-}
-
-int NotesPageCoordinator::FocusedTimelineGroupIndex() const
-{
-    const page_navigation::NavigationItemDescriptor* item =
-        navigation_model_.ItemAt(focus_.index());
-    if (item == nullptr ||
-        item->section != page_navigation::NavigationItemSection::kNotesPageTimelineGroups ||
-        item->role != page_navigation::NavigationItemRole::kNotesPageTimelineGroup) {
-        return -1;
-    }
-    return item->item_index >= 0 && item->item_index < TimelineGroupCount() ? item->item_index : -1;
-}
-
-void NotesPageCoordinator::UpdateSelectedRecordingId()
-{
-    const TimelineEntry* entry = SelectedEntry();
-    selected_recording_id_ = entry != nullptr ? entry->recording_id : std::string();
-}
-
-bool NotesPageCoordinator::MoveFocus(int delta)
-{
-    if (delta == 0) {
-        return false;
-    }
-    if (item_list_active_) {
-        if (!item_focus_.Move(delta)) {
-            return false;
-        }
-        visible_group_index_ = active_group_index_;
-        UpdateSelectedRecordingId();
-        return true;
-    }
-    if (!focus_.Move(delta)) {
-        return false;
-    }
-    const int group = FocusedTimelineGroupIndex();
-    if (group >= 0) {
-        visible_group_index_ = group;
-    }
-    return true;
-}
-
-bool NotesPageCoordinator::SetFocusIndex(int index)
-{
-    if (!focus_.SetIndex(index)) {
-        return false;
-    }
-    const int group = FocusedTimelineGroupIndex();
-    if (group >= 0) {
-        visible_group_index_ = group;
-    }
-    return true;
-}
-
-bool NotesPageCoordinator::EnterFocusedGroup()
-{
-    if (item_list_active_) {
-        return false;
-    }
-    const int group = FocusedTimelineGroupIndex();
-    if (group < 0 || timeline_groups_[static_cast<size_t>(group)].entries.empty()) {
-        return false;
-    }
-    item_list_active_ = true;
-    active_group_index_ = group;
-    item_focus_.Configure(
-        static_cast<int>(timeline_groups_[static_cast<size_t>(group)].entries.size()), 0);
-    visible_group_index_ = group;
-    UpdateSelectedRecordingId();
-    return true;
-}
-
-bool NotesPageCoordinator::ExitItemList()
-{
-    if (!item_list_active_) {
-        return false;
-    }
-    item_list_active_ = false;
-    active_group_index_ = -1;
-    item_focus_.Configure(0, 0);
-    selected_recording_id_.clear();
-    return true;
-}
-
-bool NotesPageCoordinator::FocusGroupChip(int group_index)
-{
-    if (group_index < 0 || group_index >= TimelineGroupCount()) {
-        return false;
-    }
-    ExitItemList();
-    return SetFocusIndex(group_index);
-}
-
-bool NotesPageCoordinator::EnterGroupItem(int group_index, int item_index)
-{
-    if (group_index < 0 || group_index >= TimelineGroupCount()) {
-        return false;
-    }
-    const std::vector<TimelineEntry>& entries =
-        timeline_groups_[static_cast<size_t>(group_index)].entries;
-    if (entries.empty()) {
-        return false;
-    }
-    SetFocusIndex(group_index);
-    item_list_active_ = true;
-    active_group_index_ = group_index;
-    const int clamped = std::clamp(item_index, 0, static_cast<int>(entries.size()) - 1);
-    item_focus_.Configure(static_cast<int>(entries.size()), clamped);
-    visible_group_index_ = group_index;
-    UpdateSelectedRecordingId();
-    return true;
-}
-
-const NotesPageCoordinator::TimelineEntry* NotesPageCoordinator::FindEntry(
-    const std::string& recording_id, int* group_index, int* entry_index) const
-{
-    if (recording_id.empty()) {
-        return nullptr;
-    }
-    for (size_t g = 0; g < timeline_groups_.size(); ++g) {
-        const std::vector<TimelineEntry>& entries = timeline_groups_[g].entries;
-        for (size_t e = 0; e < entries.size(); ++e) {
-            if (entries[e].recording_id == recording_id) {
-                if (group_index != nullptr) {
-                    *group_index = static_cast<int>(g);
-                }
-                if (entry_index != nullptr) {
-                    *entry_index = static_cast<int>(e);
-                }
-                return &entries[e];
-            }
-        }
-    }
-    return nullptr;
-}
-
-bool NotesPageCoordinator::FocusRecording(const std::string& recording_id, bool activate_item_list)
-{
-    int group_index = -1;
-    int entry_index = -1;
-    if (FindEntry(recording_id, &group_index, &entry_index) == nullptr) {
-        return false;
-    }
-    SetFocusIndex(group_index);
-    visible_group_index_ = group_index;
-    selected_recording_id_ = recording_id;
-    if (activate_item_list) {
-        item_list_active_ = true;
-        active_group_index_ = group_index;
-        item_focus_.Configure(
-            static_cast<int>(timeline_groups_[static_cast<size_t>(group_index)].entries.size()),
-            entry_index);
-    }
-    return true;
+    std::vector<TimelineGroup> groups = BuildGroups(recordings);
+    const int group_count = static_cast<int>(groups.size());
+    focus_.RefreshPreservingSelection(std::move(groups),
+                                      page_navigation::BuildNotesPageNavigationModel(group_count));
 }
 
 bool NotesPageCoordinator::SetEntryFollowUpState(const std::string& recording_id, bool follow_up,
                                                  bool follow_up_completed)
 {
-    for (TimelineGroup& group : timeline_groups_) {
-        for (TimelineEntry& entry : group.entries) {
-            if (entry.recording_id == recording_id) {
-                entry.follow_up = follow_up;
-                entry.follow_up_completed = follow_up_completed;
-                entry.item.header.tag_icon_asset = follow_up ? PinIcon() : nullptr;
-                return true;
-            }
-        }
+    TimelineEntry* entry = focus_.MutableEntry(recording_id);
+    if (entry == nullptr) {
+        return false;
     }
-    return false;
-}
-
-const NotesPageCoordinator::TimelineEntry* NotesPageCoordinator::SelectedEntry() const
-{
-    if (!item_list_active_ || active_group_index_ < 0 ||
-        active_group_index_ >= TimelineGroupCount()) {
-        return nullptr;
-    }
-    const std::vector<TimelineEntry>& entries =
-        timeline_groups_[static_cast<size_t>(active_group_index_)].entries;
-    const int index = item_focus_.index();
-    if (index < 0 || index >= static_cast<int>(entries.size())) {
-        return nullptr;
-    }
-    return &entries[static_cast<size_t>(index)];
-}
-
-bool NotesPageCoordinator::HasOnlyEmptyGroup() const
-{
-    return timeline_groups_.size() == 1 && timeline_groups_.front().entries.empty();
-}
-
-bool NotesPageCoordinator::IsRoleFocused(page_navigation::NavigationItemRole role) const
-{
-    return navigation_model_.IsRoleSelected(focus_.index(), role);
+    entry->follow_up = follow_up;
+    entry->follow_up_completed = follow_up_completed;
+    entry->item.header.tag_icon_asset = follow_up ? PinIcon() : nullptr;
+    return true;
 }
 
 epaper_ui::NotesPageState NotesPageCoordinator::BuildState() const
 {
     epaper_ui::NotesPageState state = {};
     state.title_text = "Notes";
-    state.navigation_focus_index = focus_.index();
+    state.navigation_focus_index = focus_.focus().index();
 
     epaper_ui::TimelineListState timeline = {};
     timeline.item_label_plural = "Notes";
     timeline.empty_state_text = "No notes available";
     timeline.empty_state_icon_asset = project_assets::GetIcon(EmbeddedIconId::kIdea);
-    timeline.visible_group_index = visible_group_index_;
-    timeline.focused_group_index = FocusedTimelineGroupIndex();
-    timeline.active_group_index = item_list_active_ ? active_group_index_ : -1;
-    timeline.selected_item_index = item_list_active_ ? item_focus_.index() : -1;
-    timeline.groups.reserve(timeline_groups_.size());
-    for (const TimelineGroup& group : timeline_groups_) {
+    timeline.visible_group_index = focus_.VisibleGroupIndex();
+    timeline.focused_group_index = focus_.FocusedGroupIndex();
+    timeline.active_group_index = focus_.ItemListActive() ? focus_.ActiveGroupIndex() : -1;
+    timeline.selected_item_index = focus_.ItemListActive() ? focus_.ItemFocusIndex() : -1;
+    timeline.groups.reserve(focus_.groups().size());
+    for (const TimelineGroup& group : focus_.groups()) {
         epaper_ui::TimelineGroupState group_state = {};
         group_state.label_text = group.label_text;
         group_state.items.reserve(group.entries.size());
