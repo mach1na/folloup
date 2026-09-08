@@ -3,21 +3,97 @@
 Open items only. Resolved/closed items (with full investigation and
 verification history) have moved to `docs/todo-archive.md`.
 
-## Page trio duplication: Notes/Todos/Follow-up
+## ~~Page trio duplication: Notes/Todos/Follow-up~~ — resolved
 
 `main/notes_page_{coordinator,runtime,interactions}.cpp`,
-`todos_page_*.cpp`, and `follow_up_page_*.cpp` (9 files, ~1,900 lines) are
-~90% copy-pasted — the entire class body differs only by class name, one
-tag-filter predicate, an icon/label string, and one accessory field
-(`follow_up`/`completed`). A fix to group-focus clamping or item-list
-enter/exit logic has to be manually repeated 3x; already showing drift
-(`follow_up_page_interactions.cpp`'s `HandlePrimaryActivate` diverges
-subtly from notes' copy).
+`todos_page_*.cpp`, and `follow_up_page_*.cpp` (9 files, ~3,200 lines
+including headers) were ~90% copy-pasted — the entire class body differed
+only by class name, one tag-filter predicate, an icon/label string, and
+one accessory field (`follow_up`/`completed`). A fix to group-focus
+clamping or item-list enter/exit logic had to be manually repeated 3x.
+(The `follow_up_page_interactions.cpp` drift the original item cited
+turned out not to reproduce in the current tree during investigation —
+its `HandlePrimaryActivate` was already byte-identical to Notes' apart
+from a comment. A real current asymmetry was found instead, in the
+runtime layer rather than interactions: Follow-up's `kCompleteFollowUp`
+action skips the optimistic-update revert-on-failure step that Notes'/
+Todos' equivalent actions have. Left as-is here -- `ItemAction`
+dispatch is explicitly page-specific code this refactor didn't touch;
+worth its own small fix separately.)
 
-Fix: extract a generic templated/policy-based `TwoLevelTimelineCoordinator`
-that each page configures, rather than three parallel implementations.
-Biggest, riskiest item on this list — worth planning carefully rather than
-doing opportunistically.
+Planned carefully before implementing (flagged in this item as the
+riskiest one on the list): two research passes confirmed ~85-90% of the
+coordinator/runtime layers was genuinely page-agnostic (the group/item-list
+roving-focus state machine, footer index/role mapping) and that everything
+outside the 9 files referencing them (navigation model, display_service,
+ui_refresh_runtime, page_input_runtime, app_shell) was mechanically
+parallel with no real per-page logic — meaning the refactor's blast radius
+could stay contained entirely to the 9 files plus new shared headers, with
+zero changes needed anywhere else.
+
+Rather than todo.md's original phrasing (one policy-based
+`TwoLevelTimelineCoordinator` swallowing everything including each page's
+different `ItemAction`/modal/dispatch logic), went with a lower-risk
+design: extract only the genuinely shared ~85-90% into reusable pieces,
+and leave the genuinely different ~10-15% (filter rules, modal contents,
+dispatch, Todos' segment control) as page-specific code:
+
+- New `main/timeline_group_focus.h`: a header-only `TimelineGroupFocus<Entry>`
+  template class capturing the entire date-chip-group / item-list
+  roving-focus state machine (`Show`/`RefreshPreservingSelection`/
+  `MoveFocus`/`EnterFocusedGroup`/`ExitItemList`/`FocusGroupChip`/
+  `EnterGroupItem`/`FocusRecording`/`SelectedEntry`/`MutableEntry`/
+  `HasOnlyEmptyGroup`/`IsRoleFocused`/`FocusedGroupIndex`/etc.), moved
+  verbatim from the (confirmed byte-identical) logic already in all three
+  coordinators. Each page's coordinator now composes this as a member
+  (`focus_`) instead of hand-rolling its own copy; `MutableEntry` also
+  absorbed the near-identical "find an entry by id and mutate it" loop
+  that Notes'/Todos'/Follow-up's `SetEntryFollowUpState`/`SetEntryChecked`
+  each hand-rolled separately.
+- `main/shared_page_interactions.h` gained `FooterItemForIndex`/
+  `FooterRoleForFooterItem` (the byte-identical footer index<->role mapping
+  every page runtime duplicates, scoped to this trio for now) and two
+  template helpers, `BuildTimelineFooterProjectionState<Coordinator>`/
+  `TimelineFooterProjectionChanged<Coordinator>`, replacing each runtime's
+  own `BuildFooterProjectionStateLocked`/`FooterProjectionChangedForFocusIndexes`.
+  Each page's `HandlePrimaryActivate` also now reuses the existing
+  `HandleFooterPrimaryActivate<>` template (already used by Settings/Wifi/
+  Summarize) for its trailing Home/Settings/Wifi/Time footer chain, instead
+  of a hand-rolled `if`/`else if` chain — verified its behavior matches
+  exactly before adopting it. Deliberately did **not** reuse the existing
+  `HandleMoveFocus<>` template for these three pages: it doesn't set
+  `sync_footer_projection`, but Notes/Todos/Follow-up's own version does —
+  adopting it as-is would have silently dropped that flag (the footer's
+  highlighted icon could stop live-updating at the group-row/footer-row
+  boundary). Left each page's own ~10-line `HandleMoveFocus` alone rather
+  than risk changing a template other already-working pages depend on.
+- Todos' Current/Archived segment control (`EnterSegmentControl`/
+  `ExitSegmentControl`/`segment_focus_`/`recordings_` cache/`ToggleSegment`)
+  stays entirely Todos-specific, composed alongside `TimelineGroupFocus`
+  rather than forced into the shared class — it's a real, permanent
+  feature unique to that page, not incidental duplication.
+- Explicitly out of scope: `components/epaper_ui/{notes,todos,follow_up}_page.{h,cpp}`
+  (the separate render/composer layer) — confirmed Notes/Follow-up are
+  already byte-identical there too, a second, independent duplication this
+  item wasn't about. Not folded in, to keep this change's risk contained.
+
+Implementation order was lowest-risk-first: wrote the shared header, then
+refactored Notes (simplest, no segment control) as the reference, then
+Follow-up (near-identical to Notes), then Todos last (the one page
+actually composing the segment control on top of the shared class) —
+building clean after each step before moving to the next.
+
+Net effect: the three page trios (9 files) went from ~3,260 combined lines
+to ~2,101, with the ~85-90% previously-triplicated focus-state-machine now
+single-sourced in `timeline_group_focus.h` (315 lines) instead of drifting
+across three copies. No public API surface on any of the 9 files changed,
+so nothing outside them needed touching, exactly as planned.
+
+Verified: clean build at every step (`--strict-warnings`, zero warnings
+throughout), flashed to hardware, Craig confirmed on-device that Notes,
+Todos (including the segment control), and Follow-up all still work as
+before across the full interaction surface (roaming date chips, entering
+items, item-actions menus, footer navigation).
 
 ## Redundant derived state: icon/checked fields duplicate their source bool
 

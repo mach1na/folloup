@@ -1,5 +1,7 @@
 #include "todos_page_interactions.h"
 
+#include "shared_page_interactions.h"
+
 namespace todos_page_interactions {
 namespace {
 
@@ -32,21 +34,9 @@ ActivateResult HandlePrimaryActivate(TodosPageCoordinator& coordinator)
         return result;
     }
 
-    result.handled = true;
-    result.play_activate_cue = true;
-    if (coordinator.IsRoleFocused(NavigationItemRole::kFooterHome)) {
-        result.intent = ActivateIntent::kShowHome;
-    } else if (coordinator.IsRoleFocused(NavigationItemRole::kFooterSettings)) {
-        result.intent = ActivateIntent::kShowSettings;
-    } else if (coordinator.IsRoleFocused(NavigationItemRole::kFooterWifi)) {
-        result.intent = ActivateIntent::kShowWifi;
-    } else if (coordinator.IsRoleFocused(NavigationItemRole::kFooterTime)) {
-        result.intent = ActivateIntent::kShowTime;
-    } else {
-        result.handled = false;
-        result.play_activate_cue = false;
-    }
-    return result;
+    return shared_page_interactions::HandleFooterPrimaryActivate<ActivateResult>(
+        coordinator, ActivateIntent::kShowHome, ActivateIntent::kShowSettings,
+        ActivateIntent::kShowWifi, ActivateIntent::kShowTime);
 }
 
 void ApplyPrimaryActivateResult(const ActivateResult& result, const ActivateCallbacks& callbacks)
