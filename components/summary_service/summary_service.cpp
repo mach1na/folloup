@@ -656,8 +656,13 @@ std::vector<RecordingEntry> FilterWindowedEntries(const std::vector<RecordingEnt
             : 0;
 
     for (const RecordingEntry& entry : entries) {
+        // Archived todos are done and their audio is already gone -- exclude them from the
+        // summary source set the same way the Todos page's own "Current" view does, rather than
+        // re-summarizing tasks that have already been put away. Notes/Ideas are never archived, so
+        // this only actually filters anything on the kTodos branch.
         const bool matches_kind = kind == SummaryKind::kTodos
-                                      ? IsTodoRecordingTag(entry.metadata.tag)
+                                      ? IsTodoRecordingTag(entry.metadata.tag) &&
+                                            !entry.metadata.archived
                                       : IsNotesRecordingTag(entry.metadata.tag);
         if (!matches_kind) {
             continue;
