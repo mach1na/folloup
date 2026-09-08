@@ -86,13 +86,60 @@ still doesn't feel right. Known not-done, for whenever this reopens:
 - Actual measured runtime/current numbers, pending external measurement
   hardware.
 
-## Reorder footer icons for usability
+## ~~Footer icons should be context-dependent, not a fixed always-visible set~~ — resolved
 
-The bottom footer icon order isn't intuitive — revisit the order to make it
-more user-friendly. Needs a proposed new order (from Craig or from usage
-patterns) before implementing; footer rendering lives in `epaper_ui`.
+Originally framed as just reordering the bottom footer icons, but Craig's
+actual complaint is visibility, not order: it's a pain getting back to Home
+from within another screen (too many other icons competing for attention),
+and there's no need to see Settings/Wifi/Time/Sticky while already inside
+Todos/Notes/etc.
 
-Own branch/PR.
+`FooterLayoutForScreen` (`main/app_shell.cpp`) already takes the current
+`ScreenId` as a parameter but currently ignores it — every screen gets the
+same fixed set (`show_settings`/`show_wifi`/`show_time`/`show_home`/
+`show_sticky`/`show_mic` all unconditionally `true`). New design:
+
+- **On the Home screen**: show everything except Home itself (Settings,
+  Wifi, Time, Sticky, Mic) — no point showing a "go Home" icon when you're
+  already there.
+- **On every other screen**: show only Home and Mic. Settings/Wifi/Time/
+  Sticky hide — Home becomes the single, obvious way back, and Mic (the
+  core press-and-hold-to-record action) stays reachable from anywhere, but
+  the sticky-note overlay and quick-nav shortcuts to Settings/Wifi/Time
+  don't need to be reachable mid-task from every other screen.
+
+Fixed: `FooterLayoutForScreen` (`main/app_shell.cpp`) now switches on
+`screen == ScreenId::kHome` and sets the two visibility sets above instead
+of the previous unconditional `true`s.
+
+Investigating the roving-focus side confirmed the suspected gap: hiding an
+icon only in `footer_runtime::LayoutState` wouldn't have been enough on its
+own — every one of the 10 pages with footer items in their `NavigationModel`
+(`components/page_navigation/navigation_model.cpp`) unconditionally added
+all 5 footer roles (`kFooterSettings/kFooterWifi/kFooterTime/kFooterSticky/
+kFooterHome`), so UP/DOWN roving focus would still have landed on and
+activated an icon the user couldn't see. `NavigationModel`/`RovingFocus`
+have no visibility concept at all — they only know about item presence.
+Fixed the same way, at the source: extracted the previously-duplicated
+5-line footer block (identical across all 10 `Build*PageNavigationModel()`
+functions) into a single new `AddFooterItems(model, is_home_screen)` helper
+that adds Settings/Wifi/Time/Sticky when `is_home_screen` and only Home
+otherwise — mirroring `FooterLayoutForScreen`'s own rule as a single source
+of truth. `BuildDashboardPageNavigationModel()` (the Home screen) now omits
+`kFooterHome` from its model entirely, and the other 9 builders omit the
+other four roles, so an invisible icon is never reachable by roving focus
+either. No changes needed anywhere else: `IndexOfRole`/
+`FooterSelectedIndexForFocus`/`FocusFooterItem`/`HandleFooterPrimaryActivate`
+already tolerate an absent role gracefully (confirmed via investigation
+before implementing, not just assumed), and `global_footer.cpp`'s rendering
+already filtered on `visible` correctly. Mic needed no `NavigationModel`
+change since it was never part of roving focus/`NavigationItemRole` to
+begin with. Onboarding is unaffected (it never calls `FooterLayoutForScreen`
+or includes footer items — its own Close/Prev/Next control row replaces the
+footer entirely).
+
+Verified: clean build with zero warnings, flashed to hardware, Craig
+confirmed on-device it looks and behaves as intended.
 
 ## ~~Tone down the summarize/vibe-check prompts~~ — resolved
 
@@ -1025,3 +1072,69 @@ why they *didn't* collide and get caught by the same build error. Finishing
 the dedup means normalizing one of the two parameter orders and updating
 call sites in whichever files change. Not attempted here to keep that
 change scoped to what the lock screen feature actually needed.
+
+## Full shutdown should freeze on the lock screen's todo summary, not whatever was on screen
+
+Per the "Display sleep never actually blanks the panel" item above, this
+board deliberately freezes the e-paper on its last-drawn screen when
+powered down rather than blanking it — a frozen screen signals "powered
+down but holding state" more usefully than a blank one. Today, a full
+shutdown doesn't make use of that: confirming the shutdown modal
+(long-press `PWR` -> `overlay_runtime::ShowShutdownModal()` ->
+`app_shell.cpp`'s `ShutdownTask`) only repaints the status bar's power
+icon as a partial refresh on whatever screen happened to be active
+(`status_bar_runtime::SetShutdownIndicatorVisible(true)` +
+`UpdateDisplayStateAndRefreshNow(RefreshMode::kPartial)`,
+`app_shell.cpp:1427-1429`) before `power_service::RequestShutdown()` cuts
+power (`components/power_service/power_service.cpp:450-475`, via
+`Axp2101::PowerOff()`). Whatever page the user was on when they confirmed
+is what's frozen on the panel until next boot.
+
+Craig wants the frozen screen to always be the lock screen's todo summary
+instead — the same one already shown on a normal lock
+(`lock_screen_runtime::Show()`), regardless of what screen was active when
+shutdown was confirmed.
+
+Investigated timing/feasibility: firmware fully controls the shutdown
+sequence's timing (the only hardware-autonomous cutoff is a 6s
+continuous-hold rail cut, unrelated to and not racing the modal-confirm
+path — the button is released long before the modal is even shown). There
+is already ~700ms of firmware-imposed delay in the existing sequence
+(`kPowerButtonReleaseSettleDelay` 500ms + `kShutdownSettleDelay` 200ms)
+with no hardware pushback, so sequencing one more full refresh (typically
+well under a second for this panel/waveform) before `RequestShutdown()`
+fits comfortably.
+
+`lock_screen_runtime::Show()` is already the right primitive for painting
+it: it reads only the already-cached `pending_todo_titles`/`pending_todo_count`
+(no SD I/O — `RefreshTodoSummary()`'s actual scan is a separate, async,
+fire-and-forget worker task and must not be called or waited on from a
+shutdown sequence) and drives a `RefreshMode::kFull` repaint via
+`display_service::SetCurrentScreen(kLockScreen, RefreshMode::kFull, ...)`.
+The one piece of `Show()` that should NOT run here is its trailing
+`device_sleep_service::ForceDisplaySleep()` call — redundant right before
+a hard power-off, and asynchronous relative to the refresh actually
+finishing.
+
+Needs a design pass before implementing:
+- Whether `ShutdownTask` should call something like
+  `lock_screen_runtime::Show()` directly (skipping/making optional its
+  `ForceDisplaySleep()` tail call), or a new narrower entry point.
+- Whether to await the full refresh actually completing (panel `BUSY`
+  line / display task ack) before calling
+  `power_service::RequestShutdown()`, the same way today's status-bar
+  partial refresh is presumably already awaited synchronously
+  (`UpdateDisplayStateAndRefreshNow` — confirm), so power doesn't cut
+  mid-refresh.
+- What happens if the device is already locked (lock screen already
+  active) when shutdown is confirmed — likely a no-op repaint, but worth
+  confirming `Show()` handles being called while already active cleanly.
+- **This directly inherits the open, unresolved race in "Lock screen todo
+  summary sometimes doesn't appear after PWR forces sleep" above**: if a
+  `RefreshTodoSummary()` scan is mid-flight when shutdown's `Show()` call
+  reads the cache, the frozen screen could show stale/empty todo data —
+  and unlike a normal lock (where sleep/wake "usually fixes it"), there's
+  no recovery once power is cut; it stays wrong until next boot. Worth
+  deciding whether this item should fix that race first/together, or ship
+  with the known limitation called out.
+Own branch/PR.
