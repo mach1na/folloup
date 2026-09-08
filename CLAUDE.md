@@ -285,3 +285,11 @@ always take precedence over built-in sdkconfig credentials.
   button, a different flow), update the relevant section of the manual as
   part of that change, not as a follow-up. It describes actual behavior,
   not code — write it in plain, user-facing terms.
+- Every fix, feature, or `docs/todo.md` item gets its own branch — don't
+  stack unrelated work onto an existing branch or work directly on `main`
+  (the user-manual and todo-cleanup docs-only pushes are the narrow,
+  explicitly-requested exception, not the default).
+- When a `docs/todo.md` item is resolved, move its entry to
+  `docs/todo-archive.md` (verbatim, with a resolution note) as part of the
+  same change that resolves it, rather than just deleting or checking it
+  off in place.
