@@ -160,14 +160,19 @@ footer_runtime::LayoutState FooterLayoutForScreen(display_service::ScreenId scre
 {
     footer_runtime::LayoutState layout = {};
     layout.visible = true;
-    layout.show_settings = true;
-    layout.show_wifi = true;
-    layout.show_time = true;
-    // Home button is always visible, including on the home screen itself (tapping it
-    // there does a full-screen refresh via HandleFooterActivate -> ShowHomeScreen(kFull)).
-    layout.show_home = true;
-    // Sticky button sits left of Home; it opens the follow-up sticky-note overlay from any page.
-    layout.show_sticky = true;
+    // Context-dependent, not a fixed set: on Home there's no point showing a "go Home" icon, so
+    // it shows everything else instead; everywhere else, Settings/Wifi/Time/Sticky aren't needed
+    // mid-task and just get in the way of the one icon that matters -- the way back to Home. Mic
+    // (press-and-hold-to-record) stays visible everywhere either way, since it's the core action
+    // and was never part of this visibility split. Each page's NavigationModel mirrors this same
+    // split (see AddFooterItems in components/page_navigation/navigation_model.cpp) so roving
+    // focus can't land on an icon the user can't see.
+    const bool is_home = screen == display_service::ScreenId::kHome;
+    layout.show_settings = is_home;
+    layout.show_wifi = is_home;
+    layout.show_time = is_home;
+    layout.show_sticky = is_home;
+    layout.show_home = !is_home;
     layout.show_mic = true;
     return layout;
 }
