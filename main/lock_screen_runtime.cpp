@@ -204,6 +204,67 @@ void OnClockTimer(void*)
     (void)SyncClockState(false);
 }
 
+esp_err_t ShowImpl(bool for_shutdown)
+{
+    epaper_ui::LockScreenState state = {};
+    bool already_active = false;
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (!s_initialized) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        already_active = s_active;
+        if (!s_active) {
+            const display_service::ScreenId current_screen = display_service::GetCurrentScreen();
+            if (current_screen != display_service::ScreenId::kLockScreen) {
+                s_restore_screen = current_screen;
+            }
+        }
+        (void)RebuildDateStateLocked(true);
+        s_active = true;
+        state = s_state;
+    }
+    // Set on the local copy only, never persisted into s_state -- this is a one-shot
+    // terminal paint (the device is about to lose power), not lock-screen state that
+    // should survive into a later, normal repaint.
+    state.for_shutdown = for_shutdown;
+
+    ESP_RETURN_ON_ERROR(PushState(state, false, false), kTag, "push lock state failed");
+    const esp_err_t status_bar_err = status_bar_runtime::UpdateDisplayState();
+    if (status_bar_err != ESP_OK && status_bar_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Status row update before lock screen show failed: %s",
+                 esp_err_to_name(status_bar_err));
+    }
+
+    // Shutdown must actually finish painting before power cuts, and must work even if
+    // the panel is currently asleep -- WakeDisplayToScreen blocks until the panel
+    // hardware is done and repaints unconditionally either way. A normal Show() instead
+    // queues through the async display command path like every other screen
+    // transition, since nothing here needs to block the caller.
+    const esp_err_t err =
+        for_shutdown
+            ? display_service::WakeDisplayToScreen(display_service::ScreenId::kLockScreen)
+            : display_service::SetCurrentScreen(display_service::ScreenId::kLockScreen,
+                                                display_service::RefreshMode::kFull,
+                                                "lock_screen_show");
+    if (err != ESP_OK) {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_active = already_active;
+        return err;
+    }
+
+    if (!for_shutdown) {
+        // Locking is meant to put the display to sleep immediately rather than sit lit
+        // until the normal inactivity timer elapses on its own. Light sleep (which is what
+        // actually drops Wi-Fi) still follows its usual configured timeout from this point
+        // -- it isn't forced -- since it costs a real Wi-Fi reassociation and a forced SD
+        // remount on wake, which a quick lock/unlock cycle shouldn't have to pay every time.
+        // No-op if already asleep or auto-sleep is disabled/misconfigured.
+        (void)device_sleep_service::ForceDisplaySleep();
+    }
+    return err;
+}
+
 esp_err_t HideImpl(bool waking)
 {
     display_service::ScreenId restore_screen = display_service::ScreenId::kHome;
@@ -277,49 +338,12 @@ bool IsActive()
 
 esp_err_t Show()
 {
-    epaper_ui::LockScreenState state = {};
-    bool already_active = false;
-    {
-        std::lock_guard<std::mutex> lock(s_mutex);
-        if (!s_initialized) {
-            return ESP_ERR_INVALID_STATE;
-        }
-        already_active = s_active;
-        if (!s_active) {
-            const display_service::ScreenId current_screen = display_service::GetCurrentScreen();
-            if (current_screen != display_service::ScreenId::kLockScreen) {
-                s_restore_screen = current_screen;
-            }
-        }
-        (void)RebuildDateStateLocked(true);
-        s_active = true;
-        state = s_state;
-    }
+    return ShowImpl(false);
+}
 
-    ESP_RETURN_ON_ERROR(PushState(state, false, false), kTag, "push lock state failed");
-    const esp_err_t status_bar_err = status_bar_runtime::UpdateDisplayState();
-    if (status_bar_err != ESP_OK && status_bar_err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(kTag, "Status row update before lock screen show failed: %s",
-                 esp_err_to_name(status_bar_err));
-    }
-    const esp_err_t err =
-        display_service::SetCurrentScreen(display_service::ScreenId::kLockScreen,
-                                          display_service::RefreshMode::kFull,
-                                          "lock_screen_show");
-    if (err != ESP_OK) {
-        std::lock_guard<std::mutex> lock(s_mutex);
-        s_active = already_active;
-        return err;
-    }
-
-    // Locking is meant to put the display to sleep immediately rather than sit lit
-    // until the normal inactivity timer elapses on its own. Light sleep (which is what
-    // actually drops Wi-Fi) still follows its usual configured timeout from this point
-    // -- it isn't forced -- since it costs a real Wi-Fi reassociation and a forced SD
-    // remount on wake, which a quick lock/unlock cycle shouldn't have to pay every time.
-    // No-op if already asleep or auto-sleep is disabled/misconfigured.
-    (void)device_sleep_service::ForceDisplaySleep();
-    return err;
+esp_err_t ShowForShutdown()
+{
+    return ShowImpl(true);
 }
 
 esp_err_t Hide()

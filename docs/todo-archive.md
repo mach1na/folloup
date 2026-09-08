@@ -1103,3 +1103,78 @@ history):
 Verified on-device: Craig confirmed both fixes ("All working"). Shipped as
 PR #29 on its own branch (`fix-archived-summary-and-footer-focus`), per
 this session's own branch-per-change convention.
+
+## ~~Full shutdown should freeze on the lock screen's todo summary, not whatever was on screen~~ — resolved
+
+Per the "Display sleep never actually blanks the panel" item above, this
+board deliberately freezes the e-paper on its last-drawn screen when
+powered down rather than blanking it. A full shutdown didn't make use of
+that: confirming the shutdown modal only repainted the status bar's power
+icon on whatever screen happened to be active before
+`power_service::RequestShutdown()` cut power, so whatever page the user
+was on when they confirmed stayed frozen until next boot. Craig wanted the
+frozen screen to always be the lock screen's todo summary instead.
+
+Planned carefully first (this item's own text flagged it as needing a
+design pass), including a Plan-agent verification pass against the live
+code before implementing. Two corrections came out of that investigation
+worth recording:
+
+- The item's own guess that today's status-bar partial refresh
+  (`UpdateDisplayStateAndRefreshNow`) was "presumably already awaited
+  synchronously" turned out to be **right**: it bypasses the async display
+  command queue entirely and paints in the caller's own task context. The
+  real gap was different: it silently no-ops if the panel is already
+  asleep.
+- `lock_screen_runtime::Show()`'s own paint path
+  (`display_service::SetCurrentScreen`) goes through `DisplayTask`'s async
+  single-slot command queue, which **silently drops the command** if the
+  panel is asleep when it's dequeued — the wrong primitive for a freeze
+  that must actually happen before power cuts, and must work even from an
+  already-asleep panel. `display_service::WakeDisplayToScreen(ScreenId)`
+  was the right one instead: it takes the panel mutex directly and paints
+  synchronously in the caller's task context (blocking on the real BUSY
+  line via `epaper_panel::ReadBusy()`), and correctly repaints regardless
+  of prior sleep state. This exact cross-task pattern was already proven
+  safe elsewhere in the codebase (`lock_screen_runtime::HideImpl(waking=true)`,
+  called from `device_sleep_runtime.cpp` — a different task than
+  `DisplayTask`).
+- A race check confirmed no other display command can land in the queue
+  between shutdown confirmation and `RequestShutdown()`: `overlay_runtime`'s
+  in-progress flag blocks every other producer of display commands
+  (button input, background-event repaint requests) from the moment the
+  modal is confirmed.
+
+Implementation: added `lock_screen_runtime::ShowForShutdown()`, sharing
+`Show()`'s state-build/push logic via a new private `ShowImpl(bool
+for_shutdown)`, differing only in using `WakeDisplayToScreen` instead of
+`SetCurrentScreen` and skipping the trailing `ForceDisplaySleep()` call
+(redundant right before a hard power cut). `ShutdownTask` in
+`main/app_shell.cpp` calls it between the existing status-bar-indicator
+step and `power_service::RequestShutdown()`; a failed freeze paint logs
+and falls through to the power-off regardless, matching the existing
+pattern for the status-bar step.
+
+Mid-implementation addition from Craig: the lock screen's bottom icon
+(normally a lock) should be a power icon instead when frozen for
+shutdown, at the same 2x-scale size already used for the lock icon (both
+are native 36px assets scaled to `kLockIconSize` = 72). Added
+`LockScreenState::for_shutdown` (`components/epaper_ui/lock_screen.h`),
+set only on the local state copy pushed for this one-shot terminal paint
+(never persisted into the lock screen runtime's cached state), and
+`DrawLockScreen` picks `kPower` vs `kLock` based on it.
+
+Explicitly left out of scope: the separate, still-open "Lock screen todo
+summary sometimes doesn't appear after PWR forces sleep" race (stale
+cached todo titles if a scan is mid-flight) — for a normal lock, sleep/wake
+usually self-corrects it; for shutdown there's no later correction once
+power is cut. Shipped with this known limitation called out rather than
+folding that separate investigation in here, per the item's own suggested
+fallback.
+
+Verified on-device across all planned cases: shutdown from Home, from
+another page, while already locked, while the display was already asleep
+(the key regression case for the `WakeDisplayToScreen` fix), and with USB
+present (board stays usable afterward since it can't fully power off) —
+Craig confirmed "all cases work as expected," including the power-icon
+swap and that a normal lock still shows the regular lock icon.
