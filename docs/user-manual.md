@@ -304,9 +304,14 @@ are there from the start (**Home**, **Car**, **Shopping**) so the list
 isn't empty on first boot; rename or delete them like any topic you add
 yourself.
 
-- **New topic** — opens the keyboard to type a name.
-- Select an existing topic to **Rename** or **Delete** it. Deleting asks
-  you to confirm; anything already tagged with that topic simply loses
+- **New topic** — listens for about 4 seconds, transcribes what you said,
+  and opens the keyboard pre-filled with a short name distilled from it
+  so you can fix anything it misheard before saving. If Gemini isn't
+  reachable (no Wi-Fi, not signed in), it skips straight to an empty
+  keyboard instead — a toast explains why.
+- Select an existing topic to **Rename** (opens the keyboard, typed
+  only) or **Delete** it. Deleting asks you to confirm; anything already
+  tagged with that topic simply loses
   it, keeping any other topics it has.
 
 ## Locking, sleep, and battery

@@ -32,8 +32,11 @@ bool ShowItemActionsModal();
 // unless this page's own action modal was the one open.
 bool HandleItemActionSelection(int selected_index);
 
-// Opens the keyboard to type a new topic's name.
-esp_err_t ShowNewTopicKeyboard();
+// Called when "New Topic" is activated. If Gemini is ready (Wi-Fi + authenticated), starts a
+// short voice capture that auto-stops, transcribes, and opens the keyboard pre-filled with the
+// extracted name. If not ready, shows a toast explaining why and opens the keyboard directly
+// (empty) instead -- topic creation always stays possible, just without the voice shortcut.
+void HandleNewTopicActivated();
 // Called once the Topics delete-confirm card modal's "Delete" action fires. Returns false if
 // there was no pending delete.
 bool DeleteConfirmedTopic();

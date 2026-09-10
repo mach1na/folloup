@@ -5,9 +5,13 @@
 #include <vector>
 
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "gemini_service.h"
 #include "overlay_runtime.h"
 #include "page_navigation/navigation_model.h"
 #include "page_navigation/page_focus_projection.h"
+#include "recording_service.h"
+#include "recording_session_service.h"
 #include "settings_topics_page_coordinator.h"
 #include "topic_service.h"
 #include "ui_refresh_runtime.h"
@@ -29,6 +33,14 @@ enum class KeyboardMode : uint8_t {
     kRenameTopic,
 };
 
+enum class CaptureState : uint8_t {
+    kIdle,
+    kRecording,
+    kTranscribing,
+};
+
+constexpr uint32_t kTopicCaptureDurationMs = 4000;
+
 std::mutex s_mutex;
 SettingsTopicsPageCoordinator s_coordinator = {};
 bool s_item_actions_pending = false;
@@ -38,6 +50,8 @@ std::vector<ItemAction> s_item_actions;
 std::string s_pending_delete_topic_id;
 KeyboardMode s_keyboard_mode = KeyboardMode::kNone;
 std::string s_rename_topic_id;
+CaptureState s_capture_state = CaptureState::kIdle;
+esp_timer_handle_t s_capture_timer = nullptr;
 
 int CurrentTopicCount()
 {
@@ -146,6 +160,166 @@ esp_err_t ShowRenameKeyboard(const std::string& topic_id, const std::string& cur
     s_keyboard_mode = KeyboardMode::kRenameTopic;
     s_rename_topic_id = topic_id;
     return overlay_runtime::ShowKeyboard(keyboard_state, &KeyboardStateChanged, nullptr);
+}
+
+esp_err_t ShowNewTopicKeyboard(const std::string& prefill_text)
+{
+    epaper_ui::KeyboardState keyboard_state = {};
+    keyboard_state.visible = true;
+    keyboard_state.input.label_text = "New topic";
+    keyboard_state.input.placeholder_text = "Topic name";
+    keyboard_state.input.value_text = prefill_text;
+    keyboard_state.input.focused = true;
+    keyboard_state.input.active = true;
+    keyboard_state.layout = epaper_ui::KeyboardLayoutKind::kLettersLower;
+    keyboard_state.selected_key_index = 0;
+    keyboard_state.shift_locked = false;
+    s_keyboard_mode = KeyboardMode::kNewTopic;
+    s_rename_topic_id.clear();
+    return overlay_runtime::ShowKeyboard(keyboard_state, &KeyboardStateChanged, nullptr);
+}
+
+std::string TrimWhitespace(const std::string& text)
+{
+    const size_t start = text.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) {
+        return {};
+    }
+    const size_t end = text.find_last_not_of(" \t\r\n");
+    return text.substr(start, end - start + 1);
+}
+
+void ShowToastText(const char* text)
+{
+    epaper_ui::ToastState toast = {};
+    toast.visible = true;
+    toast.body_text = text;
+    (void)overlay_runtime::ShowToast(toast);
+}
+
+// Distills a spoken transcript ("this one's for the kitchen renovation project") into a short
+// topic name via a second, cheap Gemini call -- falls back to the raw transcript if that call
+// fails, since a slightly verbose name beats an empty field.
+std::string ExtractTopicName(const std::string& transcript)
+{
+    const std::string prompt =
+        "Extract a short topic or project name (2-4 words, title case, no punctuation) from "
+        "this spoken phrase. Respond with only the name, nothing else.\n\n" +
+        transcript;
+    const gemini_service::TextResult result = gemini_service::GenerateText(prompt);
+    if (result.success && !result.text.empty()) {
+        return TrimWhitespace(result.text);
+    }
+    return TrimWhitespace(transcript);
+}
+
+// Runs on gemini_service's shared worker task (queued by CaptureTimerCallback below) --
+// Transcribe/GenerateText are blocking HTTP calls and must never run on the esp_timer task.
+void ProcessTopicCapture(recording_service::RecordedClipPtr clip)
+{
+    std::string name;
+    if (clip && !clip->empty()) {
+        const gemini_service::TranscriptionResult transcription =
+            gemini_service::Transcribe(*clip);
+        if (transcription.success && !transcription.transcript.empty()) {
+            name = ExtractTopicName(transcription.transcript);
+        }
+    }
+    clip.reset();
+    recording_service::DiscardClip();
+
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_capture_state = CaptureState::kIdle;
+    }
+    (void)overlay_runtime::ClearToast();
+    if (name.empty()) {
+        ShowToastText("Didn't catch that -- try typing instead");
+    }
+    (void)ShowNewTopicKeyboard(name);
+}
+
+void CaptureTimerCallback(void*)
+{
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (s_capture_state != CaptureState::kRecording) {
+            return;
+        }
+        s_capture_state = CaptureState::kTranscribing;
+    }
+    (void)recording_service::Finish();
+    recording_service::RecordedClipPtr clip = recording_service::GetRecordedClip();
+    (void)overlay_runtime::ClearToast();
+    ShowToastText("Transcribing...");
+    gemini_service::RunOnWorker([clip]() mutable { ProcessTopicCapture(std::move(clip)); });
+}
+
+esp_err_t EnsureCaptureTimer()
+{
+    if (s_capture_timer != nullptr) {
+        return ESP_OK;
+    }
+    esp_timer_create_args_t timer_args = {};
+    timer_args.callback = &CaptureTimerCallback;
+    timer_args.dispatch_method = ESP_TIMER_TASK;
+    timer_args.name = "topic_capture";
+    timer_args.skip_unhandled_events = true;
+    return esp_timer_create(&timer_args, &s_capture_timer);
+}
+
+// Shares recording_service with the app-wide press-and-hold note flow; refuse to collide with an
+// in-progress take rather than fight it for the recorder (same guard Storage's OTG toggle uses).
+void StartTopicCapture()
+{
+    const recording_session_service::Snapshot session = recording_session_service::GetSnapshot();
+    if (session.phase != recording_session_service::Phase::kIdle &&
+        session.phase != recording_session_service::Phase::kComplete &&
+        session.phase != recording_session_service::Phase::kFailed) {
+        ShowToastText("Finish the recording first");
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (s_capture_state != CaptureState::kIdle) {
+            return;
+        }
+        s_capture_state = CaptureState::kRecording;
+    }
+
+    const esp_err_t arm_err = recording_service::Arm();
+    if (arm_err != ESP_OK) {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_capture_state = CaptureState::kIdle;
+        ESP_LOGW(kTag, "Topic voice capture arm failed: %s", esp_err_to_name(arm_err));
+        return;
+    }
+    if (EnsureCaptureTimer() != ESP_OK) {
+        (void)recording_service::Cancel();
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_capture_state = CaptureState::kIdle;
+        ESP_LOGW(kTag, "Topic capture timer unavailable");
+        return;
+    }
+    const esp_err_t start_err = recording_service::Start(recording_service::StartMode::kFresh);
+    if (start_err != ESP_OK) {
+        (void)recording_service::Cancel();
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_capture_state = CaptureState::kIdle;
+        ESP_LOGW(kTag, "Topic voice capture start failed: %s", esp_err_to_name(start_err));
+        return;
+    }
+
+    ShowToastText("Listening...");
+    const esp_err_t timer_err = esp_timer_start_once(
+        s_capture_timer, static_cast<uint64_t>(kTopicCaptureDurationMs) * 1000ULL);
+    if (timer_err != ESP_OK) {
+        ESP_LOGW(kTag, "Topic capture timer start failed: %s", esp_err_to_name(timer_err));
+        (void)recording_service::Cancel();
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_capture_state = CaptureState::kIdle;
+    }
 }
 
 }  // namespace
@@ -333,20 +507,16 @@ bool HandleItemActionSelection(int selected_index)
     return true;
 }
 
-esp_err_t ShowNewTopicKeyboard()
+void HandleNewTopicActivated()
 {
-    epaper_ui::KeyboardState keyboard_state = {};
-    keyboard_state.visible = true;
-    keyboard_state.input.label_text = "New topic";
-    keyboard_state.input.placeholder_text = "Topic name";
-    keyboard_state.input.focused = true;
-    keyboard_state.input.active = true;
-    keyboard_state.layout = epaper_ui::KeyboardLayoutKind::kLettersLower;
-    keyboard_state.selected_key_index = 0;
-    keyboard_state.shift_locked = false;
-    s_keyboard_mode = KeyboardMode::kNewTopic;
-    s_rename_topic_id.clear();
-    return overlay_runtime::ShowKeyboard(keyboard_state, &KeyboardStateChanged, nullptr);
+    if (gemini_service::GetSnapshot().runtime.ready) {
+        StartTopicCapture();
+        return;
+    }
+    // No working Gemini call available (no Wi-Fi / not authenticated) -- creation stays possible
+    // via the keyboard, just without the voice shortcut.
+    ShowToastText("Connect to Wi-Fi to add topics by voice -- use the keyboard instead");
+    (void)ShowNewTopicKeyboard({});
 }
 
 bool DeleteConfirmedTopic()
