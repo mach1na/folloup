@@ -121,6 +121,18 @@ epaper_ui::SettingsPageState BuildStateLocked()
                                     recording_archive_service::GetArchiveAfterDays());
 }
 
+// Recomputes which item should anchor the top of the scrollable content area for whichever item
+// is now focused, and stores it back on the coordinator. Must run after every focus move, still
+// under s_mutex, using the just-rebuilt state (so it sees the new focus) -- the *next* BuildState
+// call (for the actual repaint) then picks up the resolved anchor. Lives here rather than on the
+// coordinator because it's the one thing about scrolling that needs the panel's actual portrait
+// dimensions, which the coordinator itself doesn't know.
+void SyncVisibleItemIndexLocked(const epaper_ui::SettingsPageState& state_after_move)
+{
+    s_coordinator.SetVisibleItemIndex(epaper_ui::SettingsPageResolveVisibleAnchor(
+        display_service::PortraitWidth(), display_service::PortraitHeight(), state_after_move));
+}
+
 }  // namespace
 
 esp_err_t UpdateDisplayState()
@@ -160,6 +172,7 @@ page_actions::FocusMoveOutcome MoveFocus(int delta)
         }
         new_focus_index = s_coordinator.focus().index();
         new_state = BuildStateLocked();
+        SyncVisibleItemIndexLocked(new_state);
     }
 
     result.sync_footer_projection =
@@ -204,6 +217,7 @@ page_actions::FocusUpdateOutcome FocusFooterItem(footer_runtime::FooterFocusItem
         }
         new_focus_index = s_coordinator.focus().index();
         new_state = BuildStateLocked();
+        SyncVisibleItemIndexLocked(new_state);
     }
 
     result.handled = true;

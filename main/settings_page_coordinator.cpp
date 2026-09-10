@@ -53,6 +53,7 @@ SettingsPageCoordinator::SettingsPageCoordinator() = default;
 void SettingsPageCoordinator::Show()
 {
     focus_.Configure(navigation_model_.item_count, 0);
+    visible_item_index_ = 0;
 }
 
 bool SettingsPageCoordinator::MoveFocus(int delta)
@@ -84,6 +85,7 @@ epaper_ui::SettingsPageState SettingsPageCoordinator::BuildState(
 
     epaper_ui::SettingsPageState state = {};
     state.navigation_focus_index = focus_.index();
+    state.visible_item_index = visible_item_index_;
     state.title_text = "Settings";
     state.wifi_toggle = {
         .label_text = "WiFi",
