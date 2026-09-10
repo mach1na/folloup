@@ -28,6 +28,8 @@ void RequestShowStorage();
 bool ConsumePendingShowStorage();
 void RequestShowTodos();
 bool ConsumePendingShowTodos();
+void RequestShowTopics();
+bool ConsumePendingShowTopics();
 
 }  // namespace settings_page_runtime
 

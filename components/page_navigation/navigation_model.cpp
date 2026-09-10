@@ -80,10 +80,12 @@ NavigationModel BuildSettingsPageNavigationModel()
             NavigationItemRole::kSettingsMenuStorage, 2);
     AddItem(model, NavigationItemSection::kSettingsPageMenu,
             NavigationItemRole::kSettingsMenuTodos, 3);
+    AddItem(model, NavigationItemSection::kSettingsPageMenu,
+            NavigationItemRole::kSettingsMenuTopics, 4);
     AddItem(model,
             NavigationItemSection::kSettingsPageMenu,
             NavigationItemRole::kSettingsManualOnboardingButton,
-            4);
+            5);
     AddFooterItems(model, /*is_home_screen=*/false);
     return model;
 }
@@ -180,6 +182,24 @@ NavigationModel BuildSettingsTodosPageNavigationModel()
             NavigationItemRole::kSettingsTodosArchiveAfterInput, 0);
     AddItem(model, NavigationItemSection::kSettingsTodosPageControls,
             NavigationItemRole::kSettingsTodosBackButton, 1);
+    AddFooterItems(model, /*is_home_screen=*/false);
+    return model;
+}
+
+NavigationModel BuildSettingsTopicsPageNavigationModel(int topic_count)
+{
+    NavigationModel model = {};
+    model.scope = NavigationScope::kSettingsTopics;
+
+    const int count = topic_count > 0 ? topic_count : 0;
+    for (int index = 0; index < count; ++index) {
+        AddItem(model, NavigationItemSection::kSettingsTopicsPageControls,
+                NavigationItemRole::kSettingsTopicsTopicRow, index);
+    }
+    AddItem(model, NavigationItemSection::kSettingsTopicsPageControls,
+            NavigationItemRole::kSettingsTopicsNewTopicButton, 0);
+    AddItem(model, NavigationItemSection::kSettingsTopicsPageControls,
+            NavigationItemRole::kSettingsTopicsBackButton, 0);
     AddFooterItems(model, /*is_home_screen=*/false);
     return model;
 }

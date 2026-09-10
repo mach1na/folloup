@@ -15,7 +15,7 @@ constexpr int kTitleBottomGap = design::spacing::k24;
 constexpr int kMenuManualGap = design::spacing::k24;
 
 constexpr std::array<const char*, kSettingsMenuItemCount> kSettingsMenuLabels = {
-    "Network", "Time", "Storage", "Todos",
+    "Network", "Time", "Storage", "Todos", "Topics",
 };
 
 int PageWidth(int portrait_width)

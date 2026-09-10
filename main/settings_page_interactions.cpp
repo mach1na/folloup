@@ -21,6 +21,8 @@ ActivateResult HandlePrimaryActivate(const SettingsPageCoordinator& coordinator)
         result.intent = ActivateIntent::kShowStorage;
     } else if (coordinator.IsRoleFocused(NavigationItemRole::kSettingsMenuTodos)) {
         result.intent = ActivateIntent::kShowTodos;
+    } else if (coordinator.IsRoleFocused(NavigationItemRole::kSettingsMenuTopics)) {
+        result.intent = ActivateIntent::kShowTopics;
     } else if (coordinator.IsRoleFocused(NavigationItemRole::kSettingsManualOnboardingButton)) {
         result.intent = ActivateIntent::kShowOnboarding;
     } else if (coordinator.IsRoleFocused(NavigationItemRole::kFooterHome)) {
@@ -58,6 +60,11 @@ void ApplyPrimaryActivateResult(const ActivateResult& result, const ActivateCall
         case ActivateIntent::kShowTodos:
             if (callbacks.show_todos) {
                 callbacks.show_todos();
+            }
+            break;
+        case ActivateIntent::kShowTopics:
+            if (callbacks.show_topics) {
+                callbacks.show_topics();
             }
             break;
         case ActivateIntent::kShowOnboarding:
