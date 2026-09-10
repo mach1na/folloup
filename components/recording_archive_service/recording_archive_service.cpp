@@ -290,6 +290,11 @@ std::string SerializeMetadata(const ArchiveMetadata& metadata)
     cJSON_AddBoolToObject(root, "follow_up_completed", metadata.follow_up_completed);
     cJSON_AddStringToObject(root, "last_transcription_error",
                             metadata.last_transcription_error.c_str());
+    cJSON* topic_ids = cJSON_CreateArray();
+    for (const std::string& topic_id : metadata.topic_ids) {
+        cJSON_AddItemToArray(topic_ids, cJSON_CreateString(topic_id.c_str()));
+    }
+    cJSON_AddItemToObject(root, "topic_ids", topic_ids);
 
     char* raw = cJSON_PrintUnformatted(root);
     std::string json = raw != nullptr ? raw : "";
@@ -381,6 +386,17 @@ bool ParseMetadata(const std::string& json, ArchiveMetadata* metadata)
     if (cJSON_IsString(last_transcription_error) &&
         last_transcription_error->valuestring != nullptr) {
         parsed.last_transcription_error = last_transcription_error->valuestring;
+    }
+
+    cJSON* topic_ids = cJSON_GetObjectItemCaseSensitive(root, "topic_ids");
+    if (cJSON_IsArray(topic_ids)) {
+        cJSON* topic_id = nullptr;
+        cJSON_ArrayForEach(topic_id, topic_ids)
+        {
+            if (cJSON_IsString(topic_id) && topic_id->valuestring != nullptr) {
+                parsed.topic_ids.emplace_back(topic_id->valuestring);
+            }
+        }
     }
 
     cJSON_Delete(root);

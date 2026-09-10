@@ -46,6 +46,11 @@ struct RecordingMetadata {
     // post-recording transcribe, a manual retry, or the one automatic offline-retry) sees the
     // failure.
     std::string last_transcription_error = {};
+    // Ids into topic_service's registry (topic_service::Topic::id) -- an orthogonal
+    // categorization axis on top of `tag`, independent of type (Note/Idea/Task). An id with no
+    // matching entry in the current registry (the topic was since deleted) is simply skipped by
+    // readers, so no rewrite is needed here when a topic is deleted.
+    std::vector<std::string> topic_ids = {};
 };
 
 // A single archived recording, resolved from its sidecar files on the SD card.
