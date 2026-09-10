@@ -28,7 +28,7 @@ namespace {
 constexpr const char* kTag = "LockScreenRuntime";
 constexpr time_t kMinValidEpoch = 1600000000;
 constexpr uint64_t kClockPollPeriodUs = 1000 * 1000;
-constexpr size_t kMaxPendingTodoTitles = 3;
+constexpr size_t kMaxPendingTodoTitles = 5;
 // Runs on its own dedicated task rather than whatever caller triggered RefreshTodoSummary()
 // (an archive-changed event can fire from very different stack budgets -- e.g. the 4096-word
 // input_callbacks dispatcher used by the recording-save flow, which a full ListRecordings()

@@ -14,6 +14,13 @@
 namespace epaper_ui {
 namespace {
 
+// Must match lock_screen_runtime.cpp's kMaxPendingTodoTitles -- that's the cap on how
+// many titles the caller ever populates in pending_todo_titles, this is the cap on how
+// many of them get drawn. Kept as two separate constants (epaper_ui can't depend on
+// main) rather than one shared source of truth; if it drifts, DrawLockScreen would just
+// never draw a row for a title that's actually present in the passed-in state.
+constexpr size_t kMaxDisplayedTodoRows = 5;
+
 template <typename DrawFn>
 void DrawOutlined(DrawFn&& draw_fn, int stroke_thickness)
 {
@@ -447,7 +454,8 @@ void DrawLockScreen(uint8_t* framebuffer,
                            body_role,
                            design::color::kBlack);
     } else {
-        const size_t row_count = std::min<size_t>(state.pending_todo_titles.size(), 3);
+        const size_t row_count =
+            std::min<size_t>(state.pending_todo_titles.size(), kMaxDisplayedTodoRows);
         for (size_t i = 0; i < row_count; ++i) {
             const int row_height = DrawTodoRow(framebuffer,
                                                raw_width,

@@ -294,8 +294,8 @@ on the Home screen in one step rather than needing a second press.
 **The lock screen itself** shows, at a glance:
 - The current weekday and date.
 - A **"TO-DO"** heading — or **"TO-DO - N PENDING"** if you have pending
-  Todos — followed by up to three of them (anything flagged as a
-  follow-up is shown first). If there are more than three, you'll see a
+  Todos — followed by up to five of them (anything flagged as a
+  follow-up is shown first). If there are more than five, you'll see a
   "+N more pending" line instead of a longer list. If you're all caught
   up, it just says so.
 
