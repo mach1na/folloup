@@ -400,8 +400,11 @@ std::string TrimWhitespace(const std::string& text)
 std::string ExtractTopicName(const std::string& transcript)
 {
     const std::string prompt =
-        "Extract a short topic or project name (2-4 words, title case, no punctuation) from "
-        "this spoken phrase. Respond with only the name, nothing else.\n\n" +
+        "Extract a short topic or project name from this spoken phrase, using as few words as "
+        "possible -- if the phrase is already just one or two words, use exactly those words "
+        "and do not add any others. Never invent or infer additional words that weren't said. "
+        "At most 4 words, title case, no punctuation. Respond with only the name, nothing "
+        "else.\n\n" +
         transcript;
     const gemini_service::TextResult result = gemini_service::GenerateText(prompt);
     if (result.success && !result.text.empty()) {
