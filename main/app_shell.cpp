@@ -1001,7 +1001,19 @@ void HandleRecordingSessionEvent(const recording_session_service::Event& event, 
         }
         case recording_session_service::Phase::kComplete: {
             epaper_ui::ToastState toast = {};
-            if (event.snapshot.transcript_saved) {
+            if (event.snapshot.last_topic_action ==
+                recording_session_service::TopicActionState::kInProgress) {
+                toast = BuildToast(event.snapshot.last_status_message.c_str(),
+                                   EmbeddedIconId::kTranscribe);
+            } else if (event.snapshot.last_topic_action ==
+                       recording_session_service::TopicActionState::kSucceeded) {
+                toast = BuildToast(event.snapshot.last_status_message.c_str(),
+                                   EmbeddedIconId::kCheck);
+            } else if (event.snapshot.last_topic_action ==
+                       recording_session_service::TopicActionState::kFailed) {
+                toast = BuildToast(event.snapshot.last_status_message.c_str(),
+                                   EmbeddedIconId::kClose);
+            } else if (event.snapshot.transcript_saved) {
                 toast = BuildToast("Transcript saved to SD", EmbeddedIconId::kFileTranscript);
             } else if (!event.snapshot.last_error_code.empty()) {
                 // Transcription was attempted but failed. Surface it as a failure (the recording

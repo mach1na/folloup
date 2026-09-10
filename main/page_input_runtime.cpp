@@ -563,9 +563,7 @@ ButtonResult ApplySettingsTopicsActivateResult(
     callbacks.open_topic_actions = []() {
         (void)settings_topics_page_runtime::ShowItemActionsModal();
     };
-    callbacks.new_topic = []() {
-        (void)settings_topics_page_runtime::ShowNewTopicKeyboard();
-    };
+    callbacks.new_topic = []() { settings_topics_page_runtime::HandleNewTopicActivated(); };
     settings_topics_page_interactions::ApplyPrimaryActivateResult(activation, callbacks);
     if (result.footer_item != footer_runtime::FooterFocusItem::kNone) {
         result.interaction_result.play_feedback = false;

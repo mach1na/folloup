@@ -31,6 +31,17 @@ enum class Phase : uint8_t {
     kFailed,
 };
 
+// Tracks the "Topic" tag option's in-place transcribe/distill/create flow, which -- unlike
+// Note/Task/Idea/Discard -- reaches kComplete twice for one take (once immediately, once when
+// the async worker job finishes) with two different outcomes to show. app_shell uses this to
+// pick the right toast icon instead of the generic complete/discard one.
+enum class TopicActionState : uint8_t {
+    kNone = 0,
+    kInProgress,
+    kSucceeded,
+    kFailed,
+};
+
 enum class BlockedReason : uint8_t {
     kNone = 0,
     kLockScreenActive,
@@ -53,6 +64,7 @@ struct Snapshot {
     bool has_clip = false;
     bool clip_saved = false;
     bool transcript_saved = false;
+    TopicActionState last_topic_action = TopicActionState::kNone;
     bool request_in_flight = false;
     size_t recorded_samples = 0;
     uint32_t duration_ms = 0;
@@ -79,6 +91,10 @@ struct TagOption {
     // archiving it; the `tag` field is unused. Marks intent explicitly so the
     // discard path can't break if the option order changes.
     bool is_discard = false;
+    // When true, the recording is never archived either -- instead it's transcribed in place,
+    // distilled into a short name, and added to topic_service's registry as a new topic. Like
+    // is_discard, `tag` is unused.
+    bool is_topic = false;
 };
 
 using EventHandler = void (*)(const Event& event, void* context);
@@ -92,7 +108,7 @@ void SetEventHandler(EventHandler handler, void* context);
 // attempted (and fail) instead of being flagged pending_transcription for automatic retry.
 void SetNetworkConnected(bool connected);
 Snapshot GetSnapshot();
-const std::array<TagOption, 4>& TagOptions();
+const std::array<TagOption, 5>& TagOptions();
 
 bool HandlePowerPressDown(const Context& context);
 bool HandlePowerLongPressStart(const Context& context);

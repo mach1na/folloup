@@ -32,8 +32,10 @@ bool ShowItemActionsModal();
 // unless this page's own action modal was the one open.
 bool HandleItemActionSelection(int selected_index);
 
-// Opens the keyboard to type a new topic's name.
-esp_err_t ShowNewTopicKeyboard();
+// Called when "New Topic" is activated -- opens the keyboard, empty. Voice-created topics are
+// created via the normal recording flow's "Save recording as" menu instead (see the "Topic"
+// option added to recording_session_service::TagOptions), not from this screen.
+void HandleNewTopicActivated();
 // Called once the Topics delete-confirm card modal's "Delete" action fires. Returns false if
 // there was no pending delete.
 bool DeleteConfirmedTopic();

@@ -333,7 +333,7 @@ bool HandleItemActionSelection(int selected_index)
     return true;
 }
 
-esp_err_t ShowNewTopicKeyboard()
+void HandleNewTopicActivated()
 {
     epaper_ui::KeyboardState keyboard_state = {};
     keyboard_state.visible = true;
@@ -346,7 +346,7 @@ esp_err_t ShowNewTopicKeyboard()
     keyboard_state.shift_locked = false;
     s_keyboard_mode = KeyboardMode::kNewTopic;
     s_rename_topic_id.clear();
-    return overlay_runtime::ShowKeyboard(keyboard_state, &KeyboardStateChanged, nullptr);
+    (void)overlay_runtime::ShowKeyboard(keyboard_state, &KeyboardStateChanged, nullptr);
 }
 
 bool DeleteConfirmedTopic()
