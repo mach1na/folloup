@@ -52,6 +52,7 @@ private:
             epaper_ui::NetworkSignalStrength::kStrong;
     };
 
+    static epaper_ui::ToggleVisualState BuildToggleState(bool enabled, bool focused);
     void InitializePasswordInput();
     int NetworkCount() const;
 
@@ -65,6 +66,11 @@ private:
     bool network_list_focus_ring_visible_ = true;
     int selected_network_index_ = epaper_ui::kNetworkListNoSelection;
     epaper_ui::PasswordInputState password_input_state_ = {};
+    // Moved here from the old flat Settings page -- reflects wifi_service state, set by
+    // RefreshFromService; toggling itself happens via direct wifi_service calls in the
+    // interactions/runtime layer, not the coordinator (same split Settings used).
+    bool wifi_enabled_ = true;
+    bool access_point_mode_ = false;
 };
 
 #endif  // WIFI_PAGE_COORDINATOR_H_

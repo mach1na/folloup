@@ -20,8 +20,6 @@ that no longer apply — this manual is the accurate reference.
 - [Vibe Check](#vibe-check)
 - [Summarize](#summarize)
 - [Settings](#settings)
-- [WiFi](#wifi)
-- [Time](#time)
 - [Locking, sleep, and battery](#locking-sleep-and-battery)
 - [Shutting down and charging](#shutting-down-and-charging)
 - [Tips and things that surprise people](#tips-and-things-that-surprise-people)
@@ -77,8 +75,9 @@ yourself). From there you can:
   timestamps on your recordings and for the "Today" grouping on Notes/Todos.
 
 You can come back to WiFi and time settings later from the device itself
-(see [WiFi](#wifi) and [Time](#time) below) — the setup portal is only
-needed the first time, or if you want to change your Gemini key.
+(see [Settings](#settings) below — they're the Network and Time pages in
+the Settings hub) — the setup portal is only needed the first time, or if
+you want to change your Gemini key.
 
 ## Recording a thought
 
@@ -237,43 +236,64 @@ it up instead of a summary.
 
 ## Settings
 
+Settings is a hub, like a phone's settings app: four headings, each
+opening its own page, plus one action below them:
+
+- **Network** — WiFi and Access Point.
+- **Time** — timezone and clock.
+- **Storage** — SD card status and management.
+- **Todos** — todo archiving.
+- **Manual** — replays the first-time onboarding carousel. This one isn't
+  a heading — it's a direct action, since there's nothing to configure on
+  it.
+
+Select a heading to open its page. Every one of those pages has its own
+**Back** button at the bottom that returns you to this Settings hub. The
+footer's **Home** icon, on any of them, is different — it jumps straight
+back to the Home screen, skipping the hub.
+
+### Network
+
 From the top:
 
 1. **WiFi** — toggle WiFi on or off.
 2. **Access Point** — toggle Folloup's own setup hotspot on or off.
-3. **Storage** — shows free space and usage percent on the SD card (only
-   when a card is inserted and mounted).
-4. **Enable OTG** — mounts the SD card as a USB drive on a computer you've
-   connected via USB-C, so you can pull files off directly. While this is
-   active, the card is unavailable to Folloup itself, and you'll need to
-   explicitly **Disable OTG mode** to get it back (there's no accidental
-   way out of this while the cable's connected — that's intentional, so
-   Folloup doesn't touch the card while your computer has it mounted).
-5. **Format SD** — erases the SD card completely. Folloup asks you to
-   confirm ("Formatting the SD card will erase everything on the card") —
-   there's no undo once you confirm.
-6. **Manual** — replays the first-time onboarding carousel.
-7. **Archive todos after** — how many days a completed Todo stays in the
-   active list before auto-archiving (see [Archiving completed
-   Todos](#archiving-completed-todos)). Choices are 7, 14, 30, 60, or 90
-   days, or **Never** to turn off automatic archiving entirely (you can
-   still archive individual items manually). Default is 7 days.
+3. A list of nearby networks — each row indicates whether it's open or
+   password-protected, its signal strength, and whether it's the one
+   you're currently connected to. Select a network, enter its password if
+   it needs one (there's a show/hide toggle for what you've typed), and
+   press **Connect**. If you're already connected to the highlighted
+   network, that same button reads **Disconnect** instead. Use **Scan**
+   to refresh the list.
 
-## WiFi
-
-Shows a list of nearby networks — each row indicates whether it's open or
-password-protected, its signal strength, and whether it's the one you're
-currently connected to. Select a network, enter its password if it needs
-one (there's a show/hide toggle for what you've typed), and press
-**Connect**. If you're already connected to the highlighted network, that
-same button reads **Disconnect** instead. Use **Scan** to refresh the list.
-
-## Time
+### Time
 
 Set your timezone from a picker, or enter the date and time by hand in the
 fields provided (hour, minute, AM/PM, month, day, year). Press **Sync &
 Save** when you're done — it both saves what you entered and re-syncs the
 clock.
+
+### Storage
+
+1. Free space and usage percent on the SD card (only shown when a card is
+   inserted and mounted).
+2. **Enable OTG** — mounts the SD card as a USB drive on a computer you've
+   connected via USB-C, so you can pull files off directly. While this is
+   active, the card is unavailable to Folloup itself, and you'll need to
+   explicitly **Disable OTG mode** to get it back (there's no accidental
+   way out of this while the cable's connected — that's intentional, so
+   Folloup doesn't touch the card while your computer has it mounted).
+3. **Format SD** — erases the SD card completely. Folloup asks you to
+   confirm ("Formatting the SD card will erase everything on the card") —
+   there's no undo once you confirm.
+
+### Todos
+
+**Archive todos after** — how many days a completed Todo stays in the
+active list before auto-archiving (see [Archiving completed
+Todos](#archiving-completed-todos)). Choices are 7, 14, 30, 60, or 90
+days, or **Never** to turn off automatic archiving entirely (you can
+still archive individual items manually). Default is 7 days.
 
 ## Locking, sleep, and battery
 

@@ -6,6 +6,31 @@ namespace wifi_page_interactions {
 
 ActivateResult HandlePrimaryActivate(WifiPageCoordinator& coordinator)
 {
+    if (coordinator.IsRoleFocused(page_navigation::NavigationItemRole::kWifiPageWifiToggle)) {
+        return {
+            .intent = ActivateIntent::kToggleWifi,
+            .handled = true,
+            .play_activate_cue = true,
+            .apply_page_state = true,
+        };
+    }
+    if (coordinator.IsRoleFocused(page_navigation::NavigationItemRole::kWifiPageEnableApToggle)) {
+        return {
+            .intent = ActivateIntent::kToggleAccessPoint,
+            .handled = true,
+            .play_activate_cue = true,
+            .apply_page_state = true,
+        };
+    }
+    if (coordinator.IsRoleFocused(page_navigation::NavigationItemRole::kWifiPageBackButton)) {
+        // Returns to the Settings hub -- this page is only ever reached from there now, so
+        // there's no other source to track (unlike Details' multi-source back button).
+        return {
+            .intent = ActivateIntent::kShowSettings,
+            .handled = true,
+            .play_activate_cue = true,
+        };
+    }
     if (coordinator.IsRoleFocused(page_navigation::NavigationItemRole::kWifiPageNetworkList)) {
         ActivateResult result = {
             .handled = true,
@@ -99,6 +124,16 @@ void ApplyPrimaryActivateResult(const ActivateResult& result,
         case ActivateIntent::kForceRefresh:
             if (callbacks.force_refresh) {
                 callbacks.force_refresh();
+            }
+            return;
+        case ActivateIntent::kToggleWifi:
+            if (callbacks.toggle_wifi) {
+                callbacks.toggle_wifi();
+            }
+            return;
+        case ActivateIntent::kToggleAccessPoint:
+            if (callbacks.toggle_access_point) {
+                callbacks.toggle_access_point();
             }
             return;
         case ActivateIntent::kOpenPasswordKeyboard:

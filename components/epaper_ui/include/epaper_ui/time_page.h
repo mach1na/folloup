@@ -23,6 +23,7 @@ enum class TimePageItemId : uint8_t {
     kDay,
     kYear,
     kSave,
+    kBack,
 };
 
 struct TimePageState {
@@ -37,6 +38,8 @@ struct TimePageState {
     TimeInputState day = {};
     TimeInputState year = {};
     ButtonState save = {};
+    // Returns to the Settings hub -- this page is reached only from there now, not a footer icon.
+    ButtonState back = {};
 
     bool operator==(const TimePageState& other) const = default;
 };

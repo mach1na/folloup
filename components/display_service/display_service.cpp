@@ -85,6 +85,8 @@ std::atomic<ScreenId> s_current_screen = ScreenId::kHome;
 epaper_ui::StatusBarState s_status_bar_state = {};
 epaper_ui::GlobalFooterState s_global_footer_state = {};
 epaper_ui::SettingsPageState s_settings_page_state = {};
+epaper_ui::SettingsStoragePageState s_settings_storage_page_state = {};
+epaper_ui::SettingsTodosPageState s_settings_todos_page_state = {};
 epaper_ui::WifiPageState s_wifi_page_state = {};
 epaper_ui::TimePageState s_time_page_state = {};
 epaper_ui::DashboardPageState s_dashboard_page_state = {};
@@ -108,6 +110,8 @@ struct RenderSnapshot {
     epaper_ui::StatusBarState status_bar = {};
     epaper_ui::GlobalFooterState global_footer = {};
     epaper_ui::SettingsPageState settings_page = {};
+    epaper_ui::SettingsStoragePageState settings_storage_page = {};
+    epaper_ui::SettingsTodosPageState settings_todos_page = {};
     epaper_ui::WifiPageState wifi_page = {};
     epaper_ui::TimePageState time_page = {};
     epaper_ui::DashboardPageState dashboard_page = {};
@@ -183,6 +187,8 @@ const RenderSnapshot& CaptureRenderSnapshot()
     snapshot.status_bar = s_status_bar_state;
     snapshot.global_footer = s_global_footer_state;
     snapshot.settings_page = s_settings_page_state;
+    snapshot.settings_storage_page = s_settings_storage_page_state;
+    snapshot.settings_todos_page = s_settings_todos_page_state;
     snapshot.wifi_page = s_wifi_page_state;
     snapshot.time_page = s_time_page_state;
     snapshot.dashboard_page = s_dashboard_page_state;
@@ -369,6 +375,34 @@ void DrawSettingsUnderlay(uint8_t* framebuffer, const RenderSnapshot& snapshot)
                                 snapshot.settings_page,
                                 snapshot.status_bar,
                                 snapshot.global_footer);
+}
+
+void DrawSettingsStorageUnderlay(uint8_t* framebuffer, const RenderSnapshot& snapshot)
+{
+    EpaperPanel& panel = Panel();
+    panel.Clear(true);
+    epaper_ui::DrawSettingsStoragePage(framebuffer,
+                                       WAVESHARE_EPD_WIDTH,
+                                       WAVESHARE_EPD_HEIGHT,
+                                       kPortraitWidth,
+                                       kPortraitHeight,
+                                       snapshot.settings_storage_page,
+                                       snapshot.status_bar,
+                                       snapshot.global_footer);
+}
+
+void DrawSettingsTodosUnderlay(uint8_t* framebuffer, const RenderSnapshot& snapshot)
+{
+    EpaperPanel& panel = Panel();
+    panel.Clear(true);
+    epaper_ui::DrawSettingsTodosPage(framebuffer,
+                                     WAVESHARE_EPD_WIDTH,
+                                     WAVESHARE_EPD_HEIGHT,
+                                     kPortraitWidth,
+                                     kPortraitHeight,
+                                     snapshot.settings_todos_page,
+                                     snapshot.status_bar,
+                                     snapshot.global_footer);
 }
 
 void DrawWifiUnderlay(uint8_t* framebuffer, const RenderSnapshot& snapshot)
@@ -629,6 +663,44 @@ esp_err_t ApplySettings(RefreshMode refresh_mode)
     // screen, skips merging into this refresh, and lands afterwards as a separate
     // partial-waveform drive over an image that was already correct.
     s_current_screen.store(ScreenId::kSettings, std::memory_order_relaxed);
+    RefreshBusyGuard refresh_busy;
+    const esp_err_t err = RefreshForMode(panel, refresh_mode);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    LogMetrics(panel.metrics());
+    return ESP_OK;
+}
+
+esp_err_t ApplySettingsStorage(RefreshMode refresh_mode)
+{
+    const RenderSnapshot& snapshot = CaptureRenderSnapshot();
+    EpaperPanel& panel = Panel();
+    DrawSettingsStorageUnderlay(panel.framebuffer(), snapshot);
+    CaptureUnderlaySnapshot(panel.framebuffer());
+    DrawCurrentOverlays(panel.framebuffer(), snapshot);
+
+    s_current_screen.store(ScreenId::kSettingsStorage, std::memory_order_relaxed);
+    RefreshBusyGuard refresh_busy;
+    const esp_err_t err = RefreshForMode(panel, refresh_mode);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    LogMetrics(panel.metrics());
+    return ESP_OK;
+}
+
+esp_err_t ApplySettingsTodos(RefreshMode refresh_mode)
+{
+    const RenderSnapshot& snapshot = CaptureRenderSnapshot();
+    EpaperPanel& panel = Panel();
+    DrawSettingsTodosUnderlay(panel.framebuffer(), snapshot);
+    CaptureUnderlaySnapshot(panel.framebuffer());
+    DrawCurrentOverlays(panel.framebuffer(), snapshot);
+
+    s_current_screen.store(ScreenId::kSettingsTodos, std::memory_order_relaxed);
     RefreshBusyGuard refresh_busy;
     const esp_err_t err = RefreshForMode(panel, refresh_mode);
     if (err != ESP_OK) {
@@ -962,6 +1034,12 @@ esp_err_t RefreshCurrentScreenRegionLocked()
         case ScreenId::kSettings:
             DrawSettingsUnderlay(panel.framebuffer(), snapshot);
             break;
+        case ScreenId::kSettingsStorage:
+            DrawSettingsStorageUnderlay(panel.framebuffer(), snapshot);
+            break;
+        case ScreenId::kSettingsTodos:
+            DrawSettingsTodosUnderlay(panel.framebuffer(), snapshot);
+            break;
         case ScreenId::kWifi:
             DrawWifiUnderlay(panel.framebuffer(), snapshot);
             break;
@@ -1032,6 +1110,10 @@ esp_err_t RefreshCurrentScreenLocked(RefreshMode refresh_mode)
             return ApplyHomeScreen(refresh_mode);
         case ScreenId::kSettings:
             return ApplySettings(refresh_mode);
+        case ScreenId::kSettingsStorage:
+            return ApplySettingsStorage(refresh_mode);
+        case ScreenId::kSettingsTodos:
+            return ApplySettingsTodos(refresh_mode);
         case ScreenId::kWifi:
             return ApplyWifi(refresh_mode);
         case ScreenId::kTime:
@@ -1156,6 +1238,10 @@ void DisplayTask(void*)
                 err = ApplyWifi(command.refresh_request.refresh_mode);
             } else if (command.screen == ScreenId::kSettings) {
                 err = ApplySettings(command.refresh_request.refresh_mode);
+            } else if (command.screen == ScreenId::kSettingsStorage) {
+                err = ApplySettingsStorage(command.refresh_request.refresh_mode);
+            } else if (command.screen == ScreenId::kSettingsTodos) {
+                err = ApplySettingsTodos(command.refresh_request.refresh_mode);
             } else if (command.screen == ScreenId::kTime) {
                 err = ApplyTime(command.refresh_request.refresh_mode);
             } else if (command.screen == ScreenId::kVibeCheck) {
@@ -1332,6 +1418,28 @@ esp_err_t SetSettingsPageState(const epaper_ui::SettingsPageState& state)
 
     std::lock_guard<std::mutex> lock(s_state_mutex);
     s_settings_page_state = state;
+    return ESP_OK;
+}
+
+esp_err_t SetSettingsStoragePageState(const epaper_ui::SettingsStoragePageState& state)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    std::lock_guard<std::mutex> lock(s_state_mutex);
+    s_settings_storage_page_state = state;
+    return ESP_OK;
+}
+
+esp_err_t SetSettingsTodosPageState(const epaper_ui::SettingsTodosPageState& state)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    std::lock_guard<std::mutex> lock(s_state_mutex);
+    s_settings_todos_page_state = state;
     return ESP_OK;
 }
 

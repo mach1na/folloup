@@ -27,6 +27,7 @@ struct Layout {
     UiRect day = {};
     UiRect year = {};
     UiRect save = {};
+    UiRect back = {};
 };
 
 TextInputStyle FieldStyle(int width)
@@ -48,6 +49,16 @@ ButtonStyle SaveStyle(int width)
 {
     ButtonStyle style = {};
     style.variant = ButtonVariant::kPrimary;
+    style.width = width;
+    style.center_label = true;
+    return style;
+}
+
+// Outlined, like Settings' Manual button: a secondary navigation action, not the primary one on
+// this page (Save is).
+ButtonStyle BackStyle(int width)
+{
+    ButtonStyle style = {};
     style.width = width;
     style.center_label = true;
     return style;
@@ -90,6 +101,9 @@ Layout BuildLayout(int portrait_width, int portrait_height, const TimePageState&
     y = Bottom3(layout.month, layout.day, layout.year) + kSectionBlockGap;
 
     layout.save = ButtonBounds(page_x, y, state.save, SaveStyle(page_width));
+    y = layout.save.bottom() + kSectionGap;
+
+    layout.back = ButtonBounds(page_x, y, state.back, BackStyle(page_width));
     return layout;
 }
 
@@ -118,6 +132,8 @@ UiRect TimePageItemBounds(int portrait_width,
             return layout.year;
         case TimePageItemId::kSave:
             return layout.save;
+        case TimePageItemId::kBack:
+            return layout.back;
         case TimePageItemId::kNone:
         default:
             return {};
@@ -153,6 +169,8 @@ UiRect TimePageItemVisualBounds(int portrait_width,
             return layout.meridiem;
         case TimePageItemId::kSave:
             return layout.save;
+        case TimePageItemId::kBack:
+            return layout.back;
         case TimePageItemId::kNone:
         default:
             return {};
@@ -173,7 +191,7 @@ bool HitTestTimePageItem(int portrait_width,
     constexpr TimePageItemId kItems[] = {
         TimePageItemId::kTimezone, TimePageItemId::kHour,     TimePageItemId::kMinute,
         TimePageItemId::kMeridiem, TimePageItemId::kMonth,    TimePageItemId::kDay,
-        TimePageItemId::kYear,     TimePageItemId::kSave,
+        TimePageItemId::kYear,     TimePageItemId::kSave,     TimePageItemId::kBack,
     };
     for (TimePageItemId candidate : kItems) {
         const UiRect bounds = TimePageItemBounds(portrait_width, portrait_height, state, candidate);
@@ -235,6 +253,9 @@ void DrawTimePage(uint8_t* framebuffer,
 
     DrawButton(framebuffer, raw_width, raw_height, portrait_width, portrait_height,
                layout.save.x, layout.save.y, state.save, SaveStyle(layout.save.width));
+
+    DrawButton(framebuffer, raw_width, raw_height, portrait_width, portrait_height,
+               layout.back.x, layout.back.y, state.back, BackStyle(layout.back.width));
 
     DrawGlobalFooter(framebuffer, raw_width, raw_height, portrait_width, portrait_height,
                      footer_state);

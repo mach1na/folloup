@@ -51,6 +51,9 @@ WifiPageCoordinator::WifiPageCoordinator()
 void WifiPageCoordinator::RefreshFromService(const wifi_service::UiState& ui_state,
                                              const wifi_service::ScanSnapshot& scan_snapshot)
 {
+    wifi_enabled_ = ui_state.wifi_enabled;
+    access_point_mode_ = ui_state.access_point_mode;
+
     if (scan_snapshot.state == wifi_service::ScanState::kRunning) {
         network_status_ = epaper_ui::NetworkListStatus::kIdle;
     } else if (!scan_snapshot.networks.empty()) {
@@ -137,7 +140,7 @@ void WifiPageCoordinator::Show()
     ResetTransientState();
     focus_.Configure(navigation_model_.item_count,
                      navigation_model_.IndexOfRole(
-                         page_navigation::NavigationItemRole::kWifiPageNetworkList));
+                         page_navigation::NavigationItemRole::kWifiPageWifiToggle));
 }
 
 bool WifiPageCoordinator::MoveFocus(int delta)
@@ -251,6 +254,17 @@ epaper_ui::WifiPageState WifiPageCoordinator::BuildState() const
     epaper_ui::WifiPageState state = {};
     state.navigation_focus_index = focus_.index();
     state.title_text = "WiFi Setup";
+    state.wifi_toggle = {
+        .label_text = "WiFi",
+        .toggle_state = BuildToggleState(
+            wifi_enabled_, IsRoleFocused(page_navigation::NavigationItemRole::kWifiPageWifiToggle)),
+    };
+    state.access_point_toggle = {
+        .label_text = "Access Point",
+        .toggle_state = BuildToggleState(
+            access_point_mode_,
+            IsRoleFocused(page_navigation::NavigationItemRole::kWifiPageEnableApToggle)),
+    };
     state.network_list = {
         .status = network_status_,
         .focused =
@@ -290,7 +304,20 @@ epaper_ui::WifiPageState WifiPageCoordinator::BuildState() const
         .label_text = SelectedNetworkIsCurrent() ? "Disconnect" : "Connect",
         .selected = IsRoleFocused(page_navigation::NavigationItemRole::kWifiPageConnectButton),
     };
+    state.back = {
+        .label_text = "Back",
+        .selected = IsRoleFocused(page_navigation::NavigationItemRole::kWifiPageBackButton),
+    };
     return state;
+}
+
+epaper_ui::ToggleVisualState WifiPageCoordinator::BuildToggleState(bool enabled, bool focused)
+{
+    if (focused) {
+        return enabled ? epaper_ui::ToggleVisualState::kFocusOn
+                       : epaper_ui::ToggleVisualState::kFocusOff;
+    }
+    return enabled ? epaper_ui::ToggleVisualState::kOn : epaper_ui::ToggleVisualState::kOff;
 }
 
 epaper_ui::PasswordInputState& WifiPageCoordinator::password_input_state()

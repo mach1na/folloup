@@ -19,6 +19,8 @@ enum class NavigationScope : uint8_t {
     kFollowUp,
     kDetails,
     kOnboarding,
+    kSettingsStorage,
+    kSettingsTodos,
 };
 
 enum class NavigationItemSection : uint8_t {
@@ -36,6 +38,8 @@ enum class NavigationItemSection : uint8_t {
     kFollowUpPageTimelineGroups,
     kDetailsPageControls,
     kOnboardingPageControls,
+    kSettingsStoragePageControls,
+    kSettingsTodosPageControls,
 };
 
 enum class NavigationItemRole : uint8_t {
@@ -45,17 +49,19 @@ enum class NavigationItemRole : uint8_t {
     kFooterWifi,
     kFooterTime,
     kFooterSticky,
-    kSettingsWifiToggle,
-    kSettingsEnableApToggle,
-    kSettingsEnableOtgButton,
-    kSettingsFormatSdButton,
+    kSettingsMenuNetwork,
+    kSettingsMenuTime,
+    kSettingsMenuStorage,
+    kSettingsMenuTodos,
     kSettingsManualOnboardingButton,
-    kSettingsArchiveAfterInput,
+    kWifiPageWifiToggle,
+    kWifiPageEnableApToggle,
     kWifiPageNetworkList,
     kWifiPagePasswordInput,
     kWifiPagePasswordVisibilityButton,
     kWifiPageScanButton,
     kWifiPageConnectButton,
+    kWifiPageBackButton,
     kTimePageTimezone,
     kTimePageHour,
     kTimePageMinute,
@@ -64,6 +70,12 @@ enum class NavigationItemRole : uint8_t {
     kTimePageDay,
     kTimePageYear,
     kTimePageSave,
+    kTimePageBackButton,
+    kSettingsStorageEnableOtgButton,
+    kSettingsStorageFormatSdButton,
+    kSettingsStorageBackButton,
+    kSettingsTodosArchiveAfterInput,
+    kSettingsTodosBackButton,
     kDashboardMenuItem,
     kVibeCheckPageCard,
     kSummarizePageSegmentControl,
@@ -100,6 +112,8 @@ struct NavigationModel {
 NavigationModel BuildSettingsPageNavigationModel();
 NavigationModel BuildWifiPageNavigationModel();
 NavigationModel BuildTimePageNavigationModel();
+NavigationModel BuildSettingsStoragePageNavigationModel();
+NavigationModel BuildSettingsTodosPageNavigationModel();
 NavigationModel BuildDashboardPageNavigationModel();
 NavigationModel BuildVibeCheckPageNavigationModel();
 NavigationModel BuildSummarizePageNavigationModel();

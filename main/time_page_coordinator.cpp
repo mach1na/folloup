@@ -228,5 +228,8 @@ epaper_ui::TimePageState TimePageCoordinator::BuildState() const
 
     state.save.label_text = "Sync & Save";
     state.save.selected = IsRoleFocused(NavigationItemRole::kTimePageSave);
+
+    state.back.label_text = "Back";
+    state.back.selected = IsRoleFocused(NavigationItemRole::kTimePageBackButton);
     return state;
 }
