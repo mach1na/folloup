@@ -288,6 +288,8 @@ std::string SerializeMetadata(const ArchiveMetadata& metadata)
                             static_cast<double>(metadata.archived_unix_seconds));
     cJSON_AddBoolToObject(root, "follow_up", metadata.follow_up);
     cJSON_AddBoolToObject(root, "follow_up_completed", metadata.follow_up_completed);
+    cJSON_AddStringToObject(root, "last_transcription_error",
+                            metadata.last_transcription_error.c_str());
 
     char* raw = cJSON_PrintUnformatted(root);
     std::string json = raw != nullptr ? raw : "";
@@ -373,6 +375,13 @@ bool ParseMetadata(const std::string& json, ArchiveMetadata* metadata)
     parsed.follow_up = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "follow_up"));
     parsed.follow_up_completed =
         cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "follow_up_completed"));
+
+    cJSON* last_transcription_error =
+        cJSON_GetObjectItemCaseSensitive(root, "last_transcription_error");
+    if (cJSON_IsString(last_transcription_error) &&
+        last_transcription_error->valuestring != nullptr) {
+        parsed.last_transcription_error = last_transcription_error->valuestring;
+    }
 
     cJSON_Delete(root);
     *metadata = parsed;
@@ -569,6 +578,7 @@ esp_err_t SaveTranscriptOnMountedFilesystem(const char* mount_point, void* conte
     if (ReadTextFile(result.metadata_path, &metadata_json) && ParseMetadata(metadata_json, &metadata)) {
         metadata.has_transcript = true;
         metadata.pending_transcription = false;
+        metadata.last_transcription_error.clear();
         const std::string updated_json = SerializeMetadata(metadata);
         ESP_LOGI(kTag,
                  "Updating metadata JSON for transcript: id=%s bytes=%u",
@@ -823,6 +833,8 @@ struct MutateContext {
     RecordingTag tag = RecordingTag::kNote;
     bool set_pending_transcription = false;
     bool pending_transcription = false;
+    bool set_transcription_error = false;
+    std::string transcription_error = {};
     bool applied = false;
 };
 
@@ -873,6 +885,9 @@ esp_err_t MutateMetadataOnMountedFilesystem(const char* mount_point, void* conte
     }
     if (mutate->set_pending_transcription) {
         metadata.pending_transcription = mutate->pending_transcription;
+    }
+    if (mutate->set_transcription_error) {
+        metadata.last_transcription_error = mutate->transcription_error;
     }
 
     const std::string updated = SerializeMetadata(metadata);
@@ -1513,6 +1528,22 @@ bool ClearPendingTranscription(const std::string& recording_id)
     context.recording_id = recording_id.c_str();
     context.set_pending_transcription = true;
     context.pending_transcription = false;
+    (void)storage_service::RunWithMountedFilesystem(MutateMetadataOnMountedFilesystem, &context);
+    if (context.applied) {
+        (void)Refresh();
+    }
+    return context.applied;
+}
+
+bool SaveTranscriptionFailure(const std::string& recording_id, const std::string& error_message)
+{
+    if (recording_id.empty()) {
+        return false;
+    }
+    MutateContext context = {};
+    context.recording_id = recording_id.c_str();
+    context.set_transcription_error = true;
+    context.transcription_error = error_message;
     (void)storage_service::RunWithMountedFilesystem(MutateMetadataOnMountedFilesystem, &context);
     if (context.applied) {
         (void)Refresh();

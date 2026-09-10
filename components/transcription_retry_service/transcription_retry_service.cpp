@@ -60,6 +60,8 @@ bool RetryOne(const std::string& recording_id)
         // manual "Transcribe" button remains available afterward.
         ESP_LOGW(kTag, "Skipping retry for %s: transcription service busy", recording_id.c_str());
         recording_archive_service::ClearPendingTranscription(recording_id);
+        recording_archive_service::SaveTranscriptionFailure(
+            recording_id, "Transcription was busy with another request");
         return false;
     }
 
@@ -67,12 +69,16 @@ bool RetryOne(const std::string& recording_id)
     if (!clip || clip->empty()) {
         ESP_LOGW(kTag, "Skipping retry for %s: clip load failed", recording_id.c_str());
         recording_archive_service::ClearPendingTranscription(recording_id);
+        recording_archive_service::SaveTranscriptionFailure(recording_id,
+                                                             "Couldn't read the saved recording");
         return false;
     }
 
     if (!transcription_service::BeginTranscription(clip)) {
         ESP_LOGW(kTag, "Skipping retry for %s: BeginTranscription refused", recording_id.c_str());
         recording_archive_service::ClearPendingTranscription(recording_id);
+        recording_archive_service::SaveTranscriptionFailure(recording_id,
+                                                             "Transcription couldn't start");
         return false;
     }
 
@@ -81,6 +87,8 @@ bool RetryOne(const std::string& recording_id)
         if (esp_timer_get_time() > deadline_us) {
             ESP_LOGW(kTag, "Retry for %s timed out waiting for transcription", recording_id.c_str());
             recording_archive_service::ClearPendingTranscription(recording_id);
+            recording_archive_service::SaveTranscriptionFailure(recording_id,
+                                                                 "Transcription timed out");
             return false;
         }
         vTaskDelay(pdMS_TO_TICKS(kPollIntervalMs));
@@ -91,6 +99,9 @@ bool RetryOne(const std::string& recording_id)
         ESP_LOGW(kTag, "Retry for %s failed: error=%s", recording_id.c_str(),
                  result.last_error_code.empty() ? "<empty transcript>" : result.last_error_code.c_str());
         recording_archive_service::ClearPendingTranscription(recording_id);
+        recording_archive_service::SaveTranscriptionFailure(
+            recording_id, result.last_error_message.empty() ? "Transcription failed"
+                                                             : result.last_error_message);
         return false;
     }
 
@@ -99,6 +110,8 @@ bool RetryOne(const std::string& recording_id)
     if (!save_result.transcript_saved) {
         ESP_LOGW(kTag, "Retry for %s: transcript save failed", recording_id.c_str());
         recording_archive_service::ClearPendingTranscription(recording_id);
+        recording_archive_service::SaveTranscriptionFailure(recording_id,
+                                                             save_result.error_message);
         return false;
     }
 
