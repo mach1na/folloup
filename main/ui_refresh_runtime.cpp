@@ -27,7 +27,7 @@ struct PendingSurface {
     bool pending = false;
 };
 
-constexpr size_t kSurfaceCount = 17;
+constexpr size_t kSurfaceCount = 18;
 
 std::mutex s_mutex;
 std::array<PendingSurface, kSurfaceCount> s_pending = {};
@@ -71,6 +71,8 @@ size_t SurfaceIndex(SurfaceKey key)
             return 15;
         case SurfaceKey::kSettingsTodosPage:
             return 16;
+        case SurfaceKey::kSettingsTopicsPage:
+            return 17;
         default:
             return 0;
     }
@@ -113,6 +115,8 @@ const char* SurfaceName(SurfaceKey key)
             return "settings_storage_page";
         case SurfaceKey::kSettingsTodosPage:
             return "settings_todos_page";
+        case SurfaceKey::kSettingsTopicsPage:
+            return "settings_topics_page";
         default:
             return "unknown";
     }
@@ -155,6 +159,8 @@ const char* SurfaceNameForIndex(size_t index)
             return "settings_storage_page";
         case 16:
             return "settings_todos_page";
+        case 17:
+            return "settings_topics_page";
         default:
             return "unknown";
     }

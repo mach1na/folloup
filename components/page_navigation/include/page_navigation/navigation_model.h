@@ -21,6 +21,7 @@ enum class NavigationScope : uint8_t {
     kOnboarding,
     kSettingsStorage,
     kSettingsTodos,
+    kSettingsTopics,
 };
 
 enum class NavigationItemSection : uint8_t {
@@ -40,6 +41,7 @@ enum class NavigationItemSection : uint8_t {
     kOnboardingPageControls,
     kSettingsStoragePageControls,
     kSettingsTodosPageControls,
+    kSettingsTopicsPageControls,
 };
 
 enum class NavigationItemRole : uint8_t {
@@ -53,6 +55,7 @@ enum class NavigationItemRole : uint8_t {
     kSettingsMenuTime,
     kSettingsMenuStorage,
     kSettingsMenuTodos,
+    kSettingsMenuTopics,
     kSettingsManualOnboardingButton,
     kWifiPageWifiToggle,
     kWifiPageEnableApToggle,
@@ -76,6 +79,9 @@ enum class NavigationItemRole : uint8_t {
     kSettingsStorageBackButton,
     kSettingsTodosArchiveAfterInput,
     kSettingsTodosBackButton,
+    kSettingsTopicsTopicRow,
+    kSettingsTopicsNewTopicButton,
+    kSettingsTopicsBackButton,
     kDashboardMenuItem,
     kVibeCheckPageCard,
     kSummarizePageSegmentControl,
@@ -114,6 +120,7 @@ NavigationModel BuildWifiPageNavigationModel();
 NavigationModel BuildTimePageNavigationModel();
 NavigationModel BuildSettingsStoragePageNavigationModel();
 NavigationModel BuildSettingsTodosPageNavigationModel();
+NavigationModel BuildSettingsTopicsPageNavigationModel(int topic_count);
 NavigationModel BuildDashboardPageNavigationModel();
 NavigationModel BuildVibeCheckPageNavigationModel();
 NavigationModel BuildSummarizePageNavigationModel();

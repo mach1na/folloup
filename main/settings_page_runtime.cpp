@@ -16,6 +16,7 @@ std::mutex s_mutex;
 SettingsPageCoordinator s_coordinator = {};
 std::atomic<bool> s_pending_show_storage = false;
 std::atomic<bool> s_pending_show_todos = false;
+std::atomic<bool> s_pending_show_topics = false;
 
 footer_runtime::FooterFocusItem FooterItemForSelectedIndex(int selected_index)
 {
@@ -206,6 +207,16 @@ void RequestShowTodos()
 bool ConsumePendingShowTodos()
 {
     return s_pending_show_todos.exchange(false, std::memory_order_relaxed);
+}
+
+void RequestShowTopics()
+{
+    s_pending_show_topics.store(true, std::memory_order_relaxed);
+}
+
+bool ConsumePendingShowTopics()
+{
+    return s_pending_show_topics.exchange(false, std::memory_order_relaxed);
 }
 
 }  // namespace settings_page_runtime

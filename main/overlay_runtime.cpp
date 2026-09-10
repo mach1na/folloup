@@ -32,6 +32,7 @@ enum class CardModalPurpose : uint8_t {
     kStorageFormatting,
     kStorageFormatSuccess,
     kStorageFormatError,
+    kTopicsConfirmDelete,
 };
 
 std::mutex s_state_mutex;
@@ -119,6 +120,12 @@ epaper_ui::CardModalState BuildCardModalState(CardModalPurpose purpose)
             state.title_text = "Format failed";
             state.body_text = "There was an error and the SD card could not be formatted.";
             state.action_labels = {"OK"};
+            break;
+        case CardModalPurpose::kTopicsConfirmDelete:
+            state.title_text = "Delete topic?";
+            state.body_text = "This topic will be removed. Entries already tagged with it keep "
+                              "their other topics.";
+            state.action_labels = {"Cancel", "Delete"};
             break;
         case CardModalPurpose::kNone:
         default:
@@ -646,6 +653,11 @@ esp_err_t ShowStorageModalFormatError()
     return ShowCardModal(CardModalPurpose::kStorageFormatError, "format_error");
 }
 
+esp_err_t ShowTopicsModalConfirmDelete()
+{
+    return ShowCardModal(CardModalPurpose::kTopicsConfirmDelete, "topics_confirm_delete");
+}
+
 esp_err_t DismissStorageModal()
 {
     return DismissCardModal();
@@ -1007,6 +1019,13 @@ app_interaction::InputResult HandleButtonEvent(const button_service::ButtonEvent
                             case CardModalPurpose::kStorageUsbActive:
                                 // Sole action: hand the card back to the app.
                                 result.request_exit_usb_mode = true;
+                                break;
+                            case CardModalPurpose::kTopicsConfirmDelete:
+                                if (index == 1) {
+                                    result.request_delete_topic = true;
+                                } else {
+                                    play_click = true;
+                                }
                                 break;
                             case CardModalPurpose::kStorageNoSdCard:
                             case CardModalPurpose::kStorageFormatSuccess:

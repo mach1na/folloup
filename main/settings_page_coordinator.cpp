@@ -10,6 +10,7 @@ constexpr NavigationItemRole kMenuRoles[epaper_ui::kSettingsMenuItemCount] = {
     NavigationItemRole::kSettingsMenuTime,
     NavigationItemRole::kSettingsMenuStorage,
     NavigationItemRole::kSettingsMenuTodos,
+    NavigationItemRole::kSettingsMenuTopics,
 };
 
 }  // namespace
