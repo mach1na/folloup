@@ -1300,3 +1300,46 @@ picker) working unchanged; every sub-page's Back button returns to the hub
 (not Home) while the footer's own Home icon still jumps straight to Home;
 Manual still replays onboarding and returns to the hub afterward. Craig
 confirmed "all looks great."
+
+## ~~Surface why a transcription failed, not just that it did~~ — resolved
+
+Craig had had a few transcriptions fail and wanted to see why. The real
+failure detail already existed transiently in `transcription_service`'s
+snapshot, but nothing persisted it — `RecordingMetadata` only tracked
+`has_transcript` (bool), so an "Audio only" item you came back to later had
+no way to show the reason, and a manual retry was just as fleeting as the
+first failure.
+
+Added `RecordingMetadata::last_transcription_error` (a single human-readable
+string, kept minimal per this item's own original guidance rather than
+also persisting the raw HTTP status/error code), set via a new
+`recording_archive_service::SaveTranscriptionFailure()` mutator — same
+`MutateContext`/`MutateMetadataOnMountedFilesystem` pattern already used by
+`MarkRecordingCompleted`/`MarkRecordingArchived`, JSON round-tripped
+alongside the rest of the sidecar metadata. Cleared automatically the next
+time `SaveTranscript` succeeds for the same recording.
+
+Wired into all three places a transcription can actually fail, found by
+tracing every caller of `transcription_service::BeginTranscription`:
+- `recording_session_service::HandleTranscriptionEvent` — both branches:
+  the main "Gemini never returned a transcript" case, and the rarer
+  "transcript came back but saving it to SD failed" case. Both needed a
+  small restructure to capture the recording id and do the (SD I/O)
+  `SaveTranscriptionFailure` call *outside* `s_mutex`, matching a lock
+  hygiene rule already followed elsewhere in that file.
+- `transcription_retry_service::RetryOne` — the one automatic offline
+  retry, with a distinct short message at each of its 5 existing failure
+  exit points (busy/clip-load-failed/refused/timed-out/Gemini-error/
+  save-failed) rather than one generic string, since each already had a
+  clearly different cause.
+
+Surfaced on the Details page: an audio-only recording's empty-state
+message now shows the specific reason instead of a generic "No transcript
+available." Self-caught fix along the way: `scroll_container.cpp`'s
+empty-state text drew unbounded, never wrapped or truncated — fine for the
+short, fixed strings it was originally fed, but a Gemini error message can
+run to ~96 chars and would have overflowed the viewport. Added a
+`FitLabelText` fit-truncate before drawing it.
+
+Verified on-device: Craig confirmed "The error reporting for transcribe is
+working as well."
