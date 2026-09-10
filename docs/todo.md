@@ -97,3 +97,46 @@ Open questions for whoever designs this:
 
 Own branch/PR.
 
+## Voice-created labels for categorizing entries, independent of Note/Idea/Todo
+
+Craig wants a second, orthogonal categorization axis on top of the existing
+Note/Idea/Todo type tag (`RecordingMetadata::tag`, set at recording time via
+the tag-selection step in `recording_session_service`): user-defined labels
+(e.g. a project name) that can be attached to any entry regardless of its
+type, so a Note and a Todo could both carry the same "Project X" label. New
+labels should be creatable by voice, via a feature living in Settings (the
+now-hub-shaped `ScreenId::kSettings` — see `docs/todo-archive.md`'s
+"Consolidate Settings, WiFi, and Time" entry — would likely gain a fifth
+heading for this, alongside Network/Time/Storage/Todos).
+
+Open questions for whoever designs this:
+- Storage: `RecordingMetadata` already persists a JSON sidecar per recording
+  on SD (`recording_archive_service`) — labels-per-entry could be a new
+  array field there, but the label *registry* itself (the set of label
+  names that exist, so they can be voice-matched/picked rather than
+  free-typed) needs its own store, probably SD-based like the recordings
+  themselves rather than NVS (NVS today only holds small config, e.g. the
+  `wifi`/`timezone` namespaces).
+- Voice creation flow: is this a dedicated "add a label" voice capture
+  (record a short clip, Gemini extracts just a label name) separate from
+  the normal press-and-hold recording flow, or a step folded into an
+  existing flow? Needs a phase-machine home if it's the former — compare
+  `recording_session_service`'s existing `kIdle -> kArmed -> ... ->
+  kComplete` phase machine for the main recording flow.
+- Assignment: one label per entry or multiple? Assigned at recording time
+  (extending the existing tag-selection step) or after the fact from the
+  Details page?
+- Browsing/filtering: Notes/Todos/Follow-up today are single-axis timelines
+  grouped by day (`notes_page_coordinator`/`todos_page_coordinator`/
+  `follow_up_page_coordinator`) — filtering or grouping by label would need
+  a second navigation dimension (e.g. a label picker/segment control) on
+  top of those pages' existing day-grouping and (for Todos) Current/Archived
+  segment control.
+- Label lifecycle: renaming or deleting a label needs to touch every entry
+  that references it (rewriting sidecars on SD), which is a bigger
+  operation than anything `recording_archive_service` does today (its
+  existing mutators, e.g. `MarkRecordingCompleted`/`SaveTranscriptionFailure`,
+  all touch a single recording's sidecar, not a cross-cutting rewrite).
+
+Own branch/PR.
+
