@@ -1,18 +1,20 @@
 # Followup Product Introduction
 
-Followup is a place to capture your thoughts — whether it's an idea, a to-do, or just a note. Record what's on your mind at that light-bulb moment, before it slips away, and Followup helps you organize it afterward. With Gemini, your recordings are transcribed and summarized automatically. Everything is stored on your SD card.
+Followup is a place to capture your thoughts — whether it's an idea, a to-do, or just a note. Record what's on your mind at that light-bulb moment, before it slips away, and Followup helps you organize it afterward. With Gemini, your recordings are transcribed automatically, and you can ask for a written summary of your Notes or Todos any time. Everything is stored on your SD card.
 
 It runs on the [Waveshare ESP32-S3-ePaper-3.97](https://docs.waveshare.com/ESP32-S3-ePaper-3.97), so your thoughts live on a quiet, always-on screen you can place anywhere — a constant, low-interruption reminder instead of one more notification buried in your phone.
 
+For the full walkthrough of every screen and control, see the [user manual](docs/user-manual.md).
+
 ## One-Sentence Positioning
 
-**Followup is a voice-first thought-capture companion on always-on ePaper: record ideas, to-dos, and notes in the moment, let Gemini transcribe and summarize them, and keep the ones that matter in front of you as stickies.**
+**Followup is a voice-first thought-capture companion on always-on ePaper: record ideas, to-dos, and notes in the moment, let Gemini transcribe them and summarize what matters on demand, and keep your pending todos in view even when the screen is locked or off.**
 
 ## What It Is Suitable For
 
 - Capturing a sudden idea by voice at the light-bulb moment, before it's forgotten
 - Jotting quick to-dos and notes hands-free while you're in the middle of something else
-- Keeping a small, always-visible set of follow-ups on a desk, fridge, or wall
+- Keeping a device on a desk, fridge, or wall that shows your pending todos at a glance, even locked or powered off
 - Revisiting past ideas later to decide what's still worth pursuing
 - Anyone who wants their thoughts organized without living inside another app on their phone
 
@@ -22,11 +24,11 @@ It runs on the [Waveshare ESP32-S3-ePaper-3.97](https://docs.waveshare.com/ESP32
 
 Press record and speak. Every capture starts as a voice recording, tagged as an **Idea**, a **To-do**, or a **Note**, so you can get the thought down the instant it arrives without stopping to type.
 
-### 2. Gemini Transcription and Summarization
+### 2. Gemini Transcription, Plus On-Demand Summaries
 
-Once a recording is saved, Gemini transcribes the audio and summarizes it — turning a rambling voice memo into readable text and a concise summary you can scan at a glance.
+Once a recording is saved, Gemini automatically transcribes it in the background, turning your voice into readable text. From the Summarize screen, you can also ask Gemini for a fresh written recap of everything currently in your Notes or your Todos, generated on demand rather than after every recording.
 
-A Gemini API key from [Google AI Studio](https://aistudio.google.com/) is required. You can get started on the free tier, subject to Gemini's free-tier limits, or use a paid account to transcribe without those limits.
+A Gemini API key from [Google AI Studio](https://aistudio.google.com/) is required. You can get started on the free tier, subject to Gemini's free-tier limits, or use a paid account without those limits.
 
 ### 3. Everything Stored on Your SD Card
 
@@ -40,9 +42,13 @@ Ideas don't all age well. Review each one and decide whether it's still a vibe w
 
 Mark a task or note as a follow-up to keep it on your radar. Followup helps you stay on track and focused on what actually needs doing next.
 
-### 6. Display Your Follow-Ups as Stickies
+### 6. Your Pending Todos, Visible at a Glance
 
-Pin your follow-ups to the ePaper display as sticky notes. Because the screen is always on and low-power, they stay in front of you as a constant, gentle reminder.
+Lock the screen — or shut the device down — and the ePaper freezes on a summary of your pending todos instead of going blank or dark. Because e-paper holds its image with no power, that summary stays legible and in front of you even while the device is locked, asleep, or fully off.
+
+### 7. Browse Your Follow-Ups as Stickies
+
+From the Home screen, open your flagged follow-ups as a stack of sticky notes you browse one at a time — a quick way to page back through what you've marked as worth revisiting, whatever it's tagged as.
 
 ## Typical Applications
 
@@ -50,10 +56,11 @@ Pin your follow-ups to the ePaper display as sticky notes. Because the screen is
 | --- | --- |
 | Idea | Capture a spark by voice and revisit it later with a vibe check |
 | To-do | Record a task hands-free and follow up until it's done |
-| Note | Keep a quick thought or reminder, transcribed and summarized |
+| Note | Keep a quick thought or reminder, transcribed automatically |
 | Follow-up | Flag the items that matter so they stay top of mind |
-| Stickies | Display your active follow-ups on the ePaper as always-on reminders |
-| Summaries | Let Gemini condense long recordings into a glanceable summary |
+| Lock screen | See your pending todos at a glance whenever the device is locked or shut down |
+| Stickies | Browse your flagged follow-ups one at a time from the Home screen |
+| Summaries | Ask Gemini for a fresh written recap of your Notes or Todos, on demand |
 
 ## Brief Specifications
 
@@ -78,23 +85,25 @@ The board also carries an SHTC3 temperature/humidity sensor on the shared I2C bu
 
 ## Controls
 
-Followup is driven entirely by the three physical controls: a rocker, the BOOT button, and the PWR button.
+Followup is driven entirely by three physical controls: a rocker, the Record button, and the PWR button. There is no touchscreen.
 
 | Control | Action |
 | --- | --- |
-| Rocker up / down | Move the selection; hold to repeat |
-| Rocker down, held | Back out of a list or card you have entered |
-| Rocker middle | Select / confirm |
-| BOOT, tap | Select / confirm |
-| BOOT, press and hold | Record — recording starts on the hold and stops when you let go |
+| Rocker, tilt up / down | Move the selection; hold a tilt to keep moving |
+| Rocker, hold down-tilt | Back out of a list, scroll view, or switch you're currently inside |
+| Rocker, press in ("Select") | Select / confirm |
+| Record button, tap | Select / confirm — same as Select |
+| Record button, press and hold | Record — starts on the hold, stops when you let go |
 | PWR, tap | Lock the screen, or unlock it |
 | PWR, hold ~1s | Open the shutdown confirmation |
-| PWR, hold 6s | Hardware power-off, straight from the PMIC |
+| PWR, hold 6s | Hardware power-off, straight from the PMIC, no matter what's on screen |
 
-Recording is exclusive to BOOT, so no other control can start or stop a capture by accident. The 6-second PWR hold bypasses the firmware entirely and always cuts power.
+Recording is exclusive to the Record button, so no other control can start or stop a capture by accident. The 6-second PWR hold bypasses the firmware entirely and always cuts power.
+
+See the [user manual](docs/user-manual.md) for how these controls apply on every screen.
 
 ## Product Value Summary
 
 The value of Followup is a quiet, always-visible place to catch your thoughts and keep the important ones in front of you. Instead of losing an idea to a forgotten note app or burying a task in a notification stream, you speak it in the moment, let Gemini turn it into clean text and a summary, and keep everything private on your SD card.
 
-Ideas get a vibe check so you only carry forward what still matters. Tasks and notes become follow-ups so you stay on track. And the ones you care about most sit on the ePaper as stickies — a steady, low-interruption reminder of what's next.
+Ideas get a vibe check so you only carry forward what still matters. Tasks and notes become follow-ups so you stay on track. Your pending todos stay visible at a glance on the lock screen — even locked, asleep, or shut down — and the follow-ups you've flagged are always a button away as stickies: together, a steady, low-interruption view of what's next.
