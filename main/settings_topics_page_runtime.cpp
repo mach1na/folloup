@@ -5,7 +5,6 @@
 #include <vector>
 
 #include "esp_log.h"
-#include "esp_timer.h"
 #include "gemini_service.h"
 #include "overlay_runtime.h"
 #include "page_navigation/navigation_model.h"
@@ -39,8 +38,6 @@ enum class CaptureState : uint8_t {
     kTranscribing,
 };
 
-constexpr uint32_t kTopicCaptureDurationMs = 4000;
-
 std::mutex s_mutex;
 SettingsTopicsPageCoordinator s_coordinator = {};
 bool s_item_actions_pending = false;
@@ -51,7 +48,6 @@ std::string s_pending_delete_topic_id;
 KeyboardMode s_keyboard_mode = KeyboardMode::kNone;
 std::string s_rename_topic_id;
 CaptureState s_capture_state = CaptureState::kIdle;
-esp_timer_handle_t s_capture_timer = nullptr;
 
 int CurrentTopicCount()
 {
@@ -224,8 +220,8 @@ std::string ExtractTopicName(const std::string& transcript)
     return TrimWhitespace(transcript);
 }
 
-// Runs on gemini_service's shared worker task (queued by CaptureTimerCallback below) --
-// Transcribe/GenerateText are blocking HTTP calls and must never run on the esp_timer task.
+// Runs on gemini_service's shared worker task (queued by StopTopicCaptureAndProcess below) --
+// Transcribe/GenerateText are blocking HTTP calls and must never run on the input task.
 void ProcessTopicCapture(recording_service::RecordedClipPtr clip)
 {
     std::string name;
@@ -250,37 +246,10 @@ void ProcessTopicCapture(recording_service::RecordedClipPtr clip)
     (void)ShowNewTopicKeyboard(name);
 }
 
-void CaptureTimerCallback(void*)
-{
-    {
-        std::lock_guard<std::mutex> lock(s_mutex);
-        if (s_capture_state != CaptureState::kRecording) {
-            return;
-        }
-        s_capture_state = CaptureState::kTranscribing;
-    }
-    (void)recording_service::Finish();
-    recording_service::RecordedClipPtr clip = recording_service::GetRecordedClip();
-    (void)overlay_runtime::ClearToast();
-    ShowToastText("Transcribing...");
-    gemini_service::RunOnWorker([clip]() mutable { ProcessTopicCapture(std::move(clip)); });
-}
-
-esp_err_t EnsureCaptureTimer()
-{
-    if (s_capture_timer != nullptr) {
-        return ESP_OK;
-    }
-    esp_timer_create_args_t timer_args = {};
-    timer_args.callback = &CaptureTimerCallback;
-    timer_args.dispatch_method = ESP_TIMER_TASK;
-    timer_args.name = "topic_capture";
-    timer_args.skip_unhandled_events = true;
-    return esp_timer_create(&timer_args, &s_capture_timer);
-}
-
 // Shares recording_service with the app-wide press-and-hold note flow; refuse to collide with an
 // in-progress take rather than fight it for the recorder (same guard Storage's OTG toggle uses).
+// Only called while "New Topic" is focused and its own hold gesture is intercepted (see
+// HandleActionButtonEvent below), so this never races recording_session_service's own arm.
 void StartTopicCapture()
 {
     const recording_session_service::Snapshot session = recording_session_service::GetSnapshot();
@@ -306,13 +275,6 @@ void StartTopicCapture()
         ESP_LOGW(kTag, "Topic voice capture arm failed: %s", esp_err_to_name(arm_err));
         return;
     }
-    if (EnsureCaptureTimer() != ESP_OK) {
-        (void)recording_service::Cancel();
-        std::lock_guard<std::mutex> lock(s_mutex);
-        s_capture_state = CaptureState::kIdle;
-        ESP_LOGW(kTag, "Topic capture timer unavailable");
-        return;
-    }
     const esp_err_t start_err = recording_service::Start(recording_service::StartMode::kFresh);
     if (start_err != ESP_OK) {
         (void)recording_service::Cancel();
@@ -323,14 +285,25 @@ void StartTopicCapture()
     }
 
     ShowToastText("Listening...");
-    const esp_err_t timer_err = esp_timer_start_once(
-        s_capture_timer, static_cast<uint64_t>(kTopicCaptureDurationMs) * 1000ULL);
-    if (timer_err != ESP_OK) {
-        ESP_LOGW(kTag, "Topic capture timer start failed: %s", esp_err_to_name(timer_err));
-        (void)recording_service::Cancel();
+}
+
+// Stops a capture started by StartTopicCapture (release of the hold). A no-op when nothing was
+// actually recording -- e.g. Gemini wasn't ready when the hold began, or the arm/start above
+// failed -- so releasing after a plain tap never tries to stop a capture that never started.
+void StopTopicCaptureAndProcess()
+{
+    {
         std::lock_guard<std::mutex> lock(s_mutex);
-        s_capture_state = CaptureState::kIdle;
+        if (s_capture_state != CaptureState::kRecording) {
+            return;
+        }
+        s_capture_state = CaptureState::kTranscribing;
     }
+    (void)recording_service::Finish();
+    recording_service::RecordedClipPtr clip = recording_service::GetRecordedClip();
+    (void)overlay_runtime::ClearToast();
+    ShowToastText("Transcribing...");
+    gemini_service::RunOnWorker([clip]() mutable { ProcessTopicCapture(std::move(clip)); });
 }
 
 }  // namespace
@@ -520,15 +493,43 @@ bool HandleItemActionSelection(int selected_index)
 
 void HandleNewTopicActivated()
 {
-    if (gemini_service::GetSnapshot().runtime.ready) {
-        StartTopicCapture();
-        return;
-    }
-    // No working Gemini call available (no Wi-Fi / not authenticated) -- creation stays possible
-    // via the keyboard, just without the voice shortcut.
-    ShowToastTextForDuration("Connect to Wi-Fi to add topics by voice -- use the keyboard instead",
-                             2500);
+    // A quick tap always means "type it" -- voice is triggered by holding ACTION instead (see
+    // HandleActionButtonEvent below), matching the app-wide quick-press-selects /
+    // press-and-hold-records convention rather than inventing a new one for this one button.
     (void)ShowNewTopicKeyboard({});
+}
+
+bool HandleActionButtonEvent(const button_service::ButtonEventInfo& event)
+{
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (!s_coordinator.IsRoleFocused(
+                page_navigation::NavigationItemRole::kSettingsTopicsNewTopicButton)) {
+            return false;
+        }
+    }
+
+    switch (event.event) {
+        case button_service::ButtonEvent::kPressDown:
+            // Swallowed here so the app-wide press-and-hold-to-record gesture doesn't also arm
+            // recording_session_service for this same press -- New Topic's hold is redirected to
+            // topic capture below instead. A quick tap still reaches page_input_runtime as its
+            // own kSingleClick event (HandleNewTopicActivated, opens the keyboard), unaffected.
+            return true;
+        case button_service::ButtonEvent::kLongPressStart:
+            if (!gemini_service::GetSnapshot().runtime.ready) {
+                ShowToastTextForDuration(
+                    "Connect to Wi-Fi to add topics by voice -- use the keyboard instead", 2500);
+                return true;
+            }
+            StartTopicCapture();
+            return true;
+        case button_service::ButtonEvent::kPressUp:
+            StopTopicCaptureAndProcess();
+            return true;
+        default:
+            return false;
+    }
 }
 
 bool DeleteConfirmedTopic()
