@@ -27,7 +27,7 @@ esp_err_t RequestRefresh(
     display_service::RefreshMode refresh_mode = display_service::RefreshMode::kPartial);
 esp_err_t SyncClockState(bool request_refresh_if_active);
 // Kicks off (on its own dedicated task, never the caller's) a re-scan of the recording
-// archive and recomputes the pending-todo summary shown on the lock screen: up to three
+// archive and recomputes the pending-todo summary shown on the lock screen: up to five
 // pending todos (follow-up flagged ones first, then newest first), plus the true total
 // pending count. Non-blocking -- safe to call from any task, including one with a small
 // stack (an archive-changed event can fire from very different callers). Pushes the result
