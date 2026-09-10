@@ -856,6 +856,13 @@ void HandleTranscriptionEvent(const transcription_service::Event& event)
                  save_result.transcript_path.empty() ? "<none>" : save_result.transcript_path.c_str(),
                  save_result.metadata_path.empty() ? "<none>" : save_result.metadata_path.c_str(),
                  save_result.error_code.empty() ? "<none>" : save_result.error_code.c_str());
+        if (!save_result.transcript_saved) {
+            // A transcript came back from Gemini but saving it failed (e.g. SD write) --
+            // persist that as the recording's failure reason. SD I/O, so done here, outside
+            // any lock.
+            (void)recording_archive_service::SaveTranscriptionFailure(pending_recording_id,
+                                                                       save_result.error_message);
+        }
         std::lock_guard<std::mutex> lock(s_mutex);
         s_snapshot.transcript_saved = save_result.transcript_saved;
         s_snapshot.last_saved_transcript_path = save_result.transcript_path;
@@ -877,17 +884,34 @@ void HandleTranscriptionEvent(const transcription_service::Event& event)
         return;
     }
 
-    std::lock_guard<std::mutex> lock(s_mutex);
-    if (s_snapshot.phase == Phase::kTranscribing && !event.snapshot.request_in_flight) {
-        s_snapshot.phase = s_snapshot.clip_saved ? Phase::kComplete : Phase::kFailed;
-        s_snapshot.last_status_message = s_snapshot.clip_saved
-                                             ? kSavedWithoutTranscriptStatus
-                                             : "Transcription failed";
-        s_snapshot.last_error_code = event.snapshot.last_error_code;
-        s_snapshot.last_error_message = event.snapshot.last_error_message;
-        s_pending_recording_id.clear();
+    bool transcription_failed = false;
+    std::string failed_recording_id;
+    std::string failure_message;
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (s_snapshot.phase == Phase::kTranscribing && !event.snapshot.request_in_flight) {
+            s_snapshot.phase = s_snapshot.clip_saved ? Phase::kComplete : Phase::kFailed;
+            s_snapshot.last_status_message = s_snapshot.clip_saved
+                                                 ? kSavedWithoutTranscriptStatus
+                                                 : "Transcription failed";
+            s_snapshot.last_error_code = event.snapshot.last_error_code;
+            s_snapshot.last_error_message = event.snapshot.last_error_message;
+            transcription_failed = !s_pending_recording_id.empty();
+            failed_recording_id = s_pending_recording_id;
+            failure_message = event.snapshot.last_error_message.empty()
+                                  ? s_snapshot.last_status_message
+                                  : event.snapshot.last_error_message;
+            s_pending_recording_id.clear();
+        }
+        NotifyLocked();
     }
-    NotifyLocked();
+    if (transcription_failed) {
+        // The recording was already saved to SD (has_clip/clip_saved) with no transcript --
+        // persist why, so it's visible later instead of only in this transient toast. SD I/O,
+        // so done here, outside the lock.
+        (void)recording_archive_service::SaveTranscriptionFailure(failed_recording_id,
+                                                                   failure_message);
+    }
 }
 
 const char* PhaseName(Phase phase)

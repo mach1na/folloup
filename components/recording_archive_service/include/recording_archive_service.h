@@ -40,6 +40,12 @@ struct RecordingMetadata {
     int64_t archived_unix_seconds = 0;
     bool follow_up = false;
     bool follow_up_completed = false;
+    // Human-readable reason the most recent transcription attempt failed. Empty when there's
+    // been no failure on record, or once has_transcript is true -- SaveTranscript clears it on
+    // success. Set by SaveTranscriptionFailure, called from whichever attempt (the initial
+    // post-recording transcribe, a manual retry, or the one automatic offline-retry) sees the
+    // failure.
+    std::string last_transcription_error = {};
 };
 
 // A single archived recording, resolved from its sidecar files on the SD card.
@@ -140,6 +146,11 @@ bool UpdateRecordingTag(const std::string& recording_id, RecordingTag tag);
 // Ends the one automatic retry attempt for a note whose transcription failed: clears the
 // pending flag but leaves has_transcript false so the manual "Transcribe" button still shows.
 bool ClearPendingTranscription(const std::string& recording_id);
+// Records why the most recent transcription attempt failed (has_transcript stays false).
+// Cleared automatically the next time SaveTranscript succeeds for the same recording. Safe to
+// call for any of the three attempt paths (initial post-recording, manual retry, automatic
+// offline retry) -- whichever one hits the failure.
+bool SaveTranscriptionFailure(const std::string& recording_id, const std::string& error_message);
 // Manually archive (or restore) a todo now, ahead of (or instead of) the age-based sweep.
 // Archiving deletes the recording's .wav in place (its .json/.txt sidecars stay under todos/) so
 // it keeps showing up, just without audio. Restoring (archived=false) does not bring the audio

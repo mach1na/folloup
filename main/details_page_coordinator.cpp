@@ -35,6 +35,7 @@ void DetailsPageCoordinator::Show(const std::vector<RecordingEntry>& recordings)
     recording_header_ = {};
     transcript_text_.clear();
     has_transcript_ = false;
+    last_transcription_error_.clear();
 
     if (!pending_recording_id_.empty()) {
         recording_id_ = pending_recording_id_;
@@ -58,6 +59,7 @@ void DetailsPageCoordinator::RefreshFromArchive(const std::vector<RecordingEntry
         recording_header_ = {};
         transcript_text_.clear();
         has_transcript_ = false;
+        last_transcription_error_.clear();
     } else {
         ApplyEntry(*entry);
     }
@@ -136,7 +138,11 @@ epaper_ui::DetailsPageState DetailsPageCoordinator::BuildState() const
     state.recording_header = recording_header_;
     state.scroll_container.content_text = has_transcript_ ? transcript_text_ : std::string();
     state.scroll_container.empty_state_message =
-        has_transcript_ ? std::string() : kNoTranscriptMessage;
+        has_transcript_
+            ? std::string()
+            : (last_transcription_error_.empty()
+                   ? kNoTranscriptMessage
+                   : "Transcription failed: " + last_transcription_error_);
     state.scroll_container.focused =
         IsRoleFocused(NavigationItemRole::kDetailsPageScrollContainer) || scroll_container_active_;
     state.scroll_container.active = scroll_container_active_;
@@ -175,6 +181,7 @@ void DetailsPageCoordinator::ApplyEntry(const RecordingEntry& entry)
     has_transcript_ = entry.metadata.has_transcript && !transcript.empty();
     has_audio_file_ = entry.has_audio_file;
     transcript_text_ = transcript;
+    last_transcription_error_ = entry.metadata.last_transcription_error;
     // "Details" (this page's own fallback title) when there's no date at all, rather than
     // timeline_format::FormatDateLabel's own "Today" fallback for that case.
     title_text_ = entry.metadata.created_local_date.empty()

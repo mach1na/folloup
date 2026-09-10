@@ -185,11 +185,15 @@ void DrawScrollContainer(uint8_t* framebuffer,
             cursor_y += icon_size + (label_height > 0 ? ClampPositive(style.empty_state_gap) : 0);
         }
         if (!state.empty_state_message.empty()) {
-            const int text_width = MeasureText(style.empty_state_role, state.empty_state_message);
+            // Single line, no wrap -- callers (e.g. a transcription failure reason, which can run
+            // to ~96 chars) aren't all guaranteed to already fit the viewport the way the short,
+            // fixed strings this was originally built for do.
+            const std::string fitted =
+                FitLabelText(style.empty_state_role, state.empty_state_message, viewport.width);
+            const int text_width = MeasureText(style.empty_state_role, fitted);
             DrawTypographyText(framebuffer, raw_width, raw_height, portrait_width, portrait_height,
                                viewport.x + CenterOffset(viewport.width, text_width), cursor_y,
-                               state.empty_state_message, style.empty_state_role,
-                               style.empty_state_text_color);
+                               fitted, style.empty_state_role, style.empty_state_text_color);
         }
     } else {
         const std::vector<std::string> lines =

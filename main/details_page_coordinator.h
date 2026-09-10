@@ -70,6 +70,7 @@ private:
     std::string transcript_text_ = {};
     bool has_transcript_ = false;
     bool has_audio_file_ = false;
+    std::string last_transcription_error_ = {};
 };
 
 #endif  // DETAILS_PAGE_COORDINATOR_H_
