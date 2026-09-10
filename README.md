@@ -107,3 +107,7 @@ See the [user manual](docs/user-manual.md) for how these controls apply on every
 The value of Followup is a quiet, always-visible place to catch your thoughts and keep the important ones in front of you. Instead of losing an idea to a forgotten note app or burying a task in a notification stream, you speak it in the moment, let Gemini turn it into clean text and a summary, and keep everything private on your SD card.
 
 Ideas get a vibe check so you only carry forward what still matters. Tasks and notes become follow-ups so you stay on track. Your pending todos stay visible at a glance on the lock screen — even locked, asleep, or shut down — and the follow-ups you've flagged are always a button away as stickies: together, a steady, low-interruption view of what's next.
+
+## License and Attribution
+
+Followup is licensed under the [GNU GPLv3](LICENSE). This repository is a fork of [ALXV's folloup-sticky](https://github.com/alxv2016/folloup-sticky), whose `main` branch targets SeeedStudio's reTerminal Sticky and which also has a `folloup-waveshare` branch porting it to the Waveshare ESP32-S3-ePaper-3.97. This fork builds on that Waveshare work and makes it the primary target going forward. Thank you to ALXV for the original design and implementation this project builds on.
