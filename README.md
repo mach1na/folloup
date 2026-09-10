@@ -110,4 +110,4 @@ Ideas get a vibe check so you only carry forward what still matters. Tasks and n
 
 ## License and Attribution
 
-Followup is licensed under the [GNU GPLv3](LICENSE). This repository is a fork of [ALXV's folloup-sticky](https://github.com/alxv2016/folloup-sticky), originally built for SeeedStudio's reTerminal Sticky; it has since been retargeted to run on the Waveshare ESP32-S3-ePaper-3.97 instead. Thank you to ALXV for the original design and implementation this project builds on.
+Followup is licensed under the [GNU GPLv3](LICENSE). This repository is a fork of [ALXV's folloup-sticky](https://github.com/alxv2016/folloup-sticky), whose `main` branch targets SeeedStudio's reTerminal Sticky and which also has a `folloup-waveshare` branch porting it to the Waveshare ESP32-S3-ePaper-3.97. This fork builds on that Waveshare work and makes it the primary target going forward. Thank you to ALXV for the original design and implementation this project builds on.
