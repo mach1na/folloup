@@ -31,6 +31,17 @@ enum class Phase : uint8_t {
     kFailed,
 };
 
+// Tracks the "Topic" tag option's in-place transcribe/distill/create flow, which -- unlike
+// Note/Task/Idea/Discard -- reaches kComplete twice for one take (once immediately, once when
+// the async worker job finishes) with two different outcomes to show. app_shell uses this to
+// pick the right toast icon instead of the generic complete/discard one.
+enum class TopicActionState : uint8_t {
+    kNone = 0,
+    kInProgress,
+    kSucceeded,
+    kFailed,
+};
+
 enum class BlockedReason : uint8_t {
     kNone = 0,
     kLockScreenActive,
@@ -53,6 +64,7 @@ struct Snapshot {
     bool has_clip = false;
     bool clip_saved = false;
     bool transcript_saved = false;
+    TopicActionState last_topic_action = TopicActionState::kNone;
     bool request_in_flight = false;
     size_t recorded_samples = 0;
     uint32_t duration_ms = 0;

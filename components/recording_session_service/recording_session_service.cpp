@@ -206,6 +206,7 @@ void ResetToIdleLocked()
     s_snapshot.has_clip = false;
     s_snapshot.clip_saved = false;
     s_snapshot.transcript_saved = false;
+    s_snapshot.last_topic_action = TopicActionState::kNone;
     s_snapshot.request_in_flight = false;
     s_snapshot.recorded_samples = 0;
     s_snapshot.duration_ms = 0;
@@ -425,8 +426,13 @@ void ProcessTopicFromRecording(recording_service::RecordedClipPtr clip)
     const std::string created_id = name.empty() ? std::string() : topic_service::Create(name);
 
     std::lock_guard<std::mutex> lock(s_mutex);
-    s_snapshot.last_status_message =
-        !created_id.empty() ? ("Added as topic: " + name) : "Couldn't catch a topic name";
+    if (!created_id.empty()) {
+        s_snapshot.last_topic_action = TopicActionState::kSucceeded;
+        s_snapshot.last_status_message = "Added as topic: " + name;
+    } else {
+        s_snapshot.last_topic_action = TopicActionState::kFailed;
+        s_snapshot.last_status_message = "Couldn't catch a topic name";
+    }
     NotifyLocked();
 }
 
@@ -714,6 +720,7 @@ bool SubmitTagSelection(int selected_index)
             s_snapshot.has_clip = false;
             s_snapshot.clip_saved = false;
             s_snapshot.transcript_saved = false;
+            s_snapshot.last_topic_action = TopicActionState::kInProgress;
             s_snapshot.last_status_message = kAddingTopicStatus;
             s_snapshot.last_error_code.clear();
             s_snapshot.last_error_message.clear();
