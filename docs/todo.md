@@ -32,43 +32,6 @@ same mechanism already wired for the light-sleep wake gesture.
 `ReadSample`. Continuous I2C polling on a battery-powered device where an
 event-driven equivalent already exists elsewhere in the same driver.
 
-## Lock screen todo summary sometimes doesn't appear after PWR forces sleep
-
-Craig noticed on-device: pressing `PWR` sometimes locks the device and
-forces display sleep (per the archived "Lock screen should trigger
-display/light sleep on entry" item), but the todo summary doesn't render on
-the frozen lock screen — putting the display back to sleep and waking it
-again usually fixes it.
-
-Likely cause, from reading the code (not yet reproduced/confirmed on-device):
-`lock_screen_runtime::Show()` (`main/lock_screen_runtime.cpp:278-323`) paints
-synchronously from whatever `s_state.pending_todo_titles` currently holds,
-then immediately calls `device_sleep_service::ForceDisplaySleep()` (line
-321). Unlike the normal inactivity-driven sleep path, `ForceDisplaySleep()`
-(`components/device_sleep_service/device_sleep_service.cpp:471-504`) has no
-`BlockerReason::kDisplayRefresh` check, so it doesn't wait for a
-still-in-flight repaint. If an archive-changed event's
-`RefreshTodoSummary()` (`lock_screen_runtime.cpp:370-389`, worker at
-141-200) is mid-scan when the lock happens, `Show()` paints stale/empty
-data; by the time the worker finishes and pushes the corrected state with a
-partial-refresh request (line 190-195), the panel has very likely already
-gone to sleep, and `DisplayTask` (`components/display_service/display_service.cpp:1103-1192`)
-silently drops any queued command while `s_display_sleeping` (logs
-"suppressed while display sleeping" only) — so the correction never paints
-until the next real wake, which does an unconditional full refresh. This
-matches "sleep/wake fixes it" exactly.
-
-Secondary contributing factor: `RefreshTodoSummary()`'s atomic in-flight
-guard (`lock_screen_runtime.cpp:372,386-388`) drops a newer archive-change
-trigger that lands while a scan is already running, so the running task
-still pushes its already-stale snapshot rather than the latest one.
-
-Fix likely needs `ForceDisplaySleep()` (or its caller) to wait for/avoid
-racing an in-flight todo-summary refresh, and/or `Show()` to kick a
-synchronous-enough refresh before painting rather than relying on
-whatever's cached. Needs on-device reproduction to confirm before
-implementing.
-
 ## `FitLabelText` still independently reimplemented in two places
 
 `network_item.cpp` and `select_item.cpp` each still have their own private
