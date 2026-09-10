@@ -34,6 +34,12 @@ constexpr size_t kMaxPendingTodoTitles = 5;
 // input_callbacks dispatcher used by the recording-save flow, which a full ListRecordings()
 // scan plus this file's own filtering/sorting on top overflowed).
 constexpr uint32_t kTodoSummaryTaskStackWords = 6144;
+// Bounds how long ShowImpl will wait for an already-in-flight todo summary scan (see
+// s_todo_summary_refresh_in_flight) to finish before painting -- long enough to cover a
+// just-recorded-then-immediately-locked scan in the common case, short enough that a slow or
+// stuck scan can never hang the lock/shutdown gesture.
+constexpr int kTodoSummaryWaitPollDelayMs = 20;
+constexpr int kTodoSummaryWaitMaxMs = 300;
 
 std::mutex s_mutex;
 bool s_initialized = false;
@@ -206,6 +212,22 @@ void OnClockTimer(void*)
 
 esp_err_t ShowImpl(bool for_shutdown)
 {
+    // If a todo-summary scan is already in flight (e.g. the user just recorded something and
+    // immediately locked), give it a short bounded window to finish so the very first paint
+    // reflects it, rather than relying on a later correction that ForceDisplaySleep's forced
+    // sleep may drop entirely (display sleep silently suppresses a still-queued repaint). Must
+    // run before taking s_mutex below -- TodoSummaryWorkerTask needs that same mutex to finish
+    // and clear the flag, so waiting while holding it would deadlock.
+    int waited_ms = 0;
+    while (s_todo_summary_refresh_in_flight.load(std::memory_order_relaxed) &&
+          waited_ms < kTodoSummaryWaitMaxMs) {
+        vTaskDelay(pdMS_TO_TICKS(kTodoSummaryWaitPollDelayMs));
+        waited_ms += kTodoSummaryWaitPollDelayMs;
+    }
+    if (waited_ms > 0) {
+        ESP_LOGI(kTag, "Waited %dms for in-flight todo summary scan before showing", waited_ms);
+    }
+
     epaper_ui::LockScreenState state = {};
     bool already_active = false;
     {
@@ -236,17 +258,14 @@ esp_err_t ShowImpl(bool for_shutdown)
                  esp_err_to_name(status_bar_err));
     }
 
-    // Shutdown must actually finish painting before power cuts, and must work even if
-    // the panel is currently asleep -- WakeDisplayToScreen blocks until the panel
-    // hardware is done and repaints unconditionally either way. A normal Show() instead
-    // queues through the async display command path like every other screen
-    // transition, since nothing here needs to block the caller.
-    const esp_err_t err =
-        for_shutdown
-            ? display_service::WakeDisplayToScreen(display_service::ScreenId::kLockScreen)
-            : display_service::SetCurrentScreen(display_service::ScreenId::kLockScreen,
-                                                display_service::RefreshMode::kFull,
-                                                "lock_screen_show");
+    // Always paint synchronously via WakeDisplayToScreen -- it blocks until the panel hardware
+    // is actually done and repaints unconditionally, even if the panel is currently asleep.
+    // Shutdown needs this so power never cuts mid-refresh; the normal lock path needs it just as
+    // much so ForceDisplaySleep() below can never fire before the paint it's supposed to follow
+    // has genuinely landed (the previous async SetCurrentScreen path raced ForceDisplaySleep's
+    // own async dispatch through a completely separate queue/task, with no ordering guarantee
+    // between the two).
+    const esp_err_t err = display_service::WakeDisplayToScreen(display_service::ScreenId::kLockScreen);
     if (err != ESP_OK) {
         std::lock_guard<std::mutex> lock(s_mutex);
         s_active = already_active;

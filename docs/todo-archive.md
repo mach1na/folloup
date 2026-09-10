@@ -1178,3 +1178,57 @@ another page, while already locked, while the display was already asleep
 present (board stays usable afterward since it can't fully power off) —
 Craig confirmed "all cases work as expected," including the power-icon
 swap and that a normal lock still shows the regular lock icon.
+
+## ~~Lock screen todo summary sometimes doesn't appear after PWR forces sleep~~ — resolved
+
+Craig had seen a short `PWR` press lock the device and force display sleep,
+but the todo summary would sometimes be missing/stale on the frozen lock
+screen — putting the display back to sleep and waking it again usually
+fixed it.
+
+Confirmed the item's own prior diagnosis by re-reading the code: if an
+archive-changed event's `RefreshTodoSummary()` scan was mid-flight when the
+lock happened, `lock_screen_runtime::ShowImpl` painted from stale/empty
+cached data; `ForceDisplaySleep()` had no check for this and proceeded
+immediately, so by the time the scan finished and pushed a correction, the
+panel was very likely already asleep and `DisplayTask` silently dropped the
+queued repaint. The underlying state snapshot was already correct by
+then — only the repaint was dropped — which is exactly why the next real
+wake (sleep/wake) "fixed it": that always does an unconditional full
+refresh.
+
+Found a second, compounding race while confirming the above: `ForceDisplaySleep()`
+doesn't put the panel to sleep itself — it dispatches an event that
+`main/device_sleep_runtime.cpp`'s `HandleAutoSleepEvent` only *enqueues*
+(onto `s_auto_sleep_event_queue`), consumed later by a separate
+`AutoSleepTask`. Meanwhile the lock screen's own paint
+(`display_service::SetCurrentScreen`, for the normal non-shutdown path) was
+*also* async, enqueued onto `DisplayTask`'s own separate command queue. Two
+independent async hops, two different queues, two different idle-blocked
+tasks, no ordering guarantee between them — `DisplayTask` usually won
+(matching "usually appears fine"), but nothing guaranteed it.
+
+Both fixes landed in `lock_screen_runtime::ShowImpl` (shared by `Show()`
+and `ShowForShutdown()`, so both paths benefit):
+- Wait, bounded (20ms polls, 300ms cap), for `s_todo_summary_refresh_in_flight`
+  to clear before painting, outside `s_mutex` (the worker needs that same
+  mutex to finish, so waiting while holding it would deadlock). Most locks
+  have no scan in flight and see zero delay; the rare
+  just-recorded-then-locked case now waits briefly for accurate data
+  instead of painting stale data and hoping a correction survives.
+- Switched the normal-path paint from async `SetCurrentScreen` to the same
+  synchronous `display_service::WakeDisplayToScreen` the shutdown-freeze
+  path already used (`docs/todo-archive.md`'s "Full shutdown should freeze
+  on the lock screen's todo summary" entry, above) — so `ForceDisplaySleep()`
+  can now never fire before the paint it's meant to follow has genuinely
+  landed on the panel.
+
+Side effect: this also quietly removes the "known limitation" the
+shutdown-freeze feature shipped with (that a mid-flight scan could freeze
+stale data on shutdown with no later correction possible) — `ShowForShutdown()`
+now gets the same bounded wait for free, since both paths share `ShowImpl`.
+
+Verified on-device: repeatedly recording a Task and immediately locking no
+longer shows stale/missing todo data on the first paint; normal lock/unlock
+timing still feels immediate; the shutdown-freeze regression cases from the
+earlier PR still work. Craig confirmed "all looks great."
