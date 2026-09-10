@@ -133,3 +133,56 @@ just the body copy — if so they need regenerating/redrawing, not just the
 text.
 
 Own branch/PR.
+
+## Replace auto light sleep with a full auto shutdown
+
+Today, after `FOLLOWUP_AUTO_SLEEP_LIGHT_SLEEP_TIMEOUT_SECONDS` of IMU-detected
+inactivity (default 1800s / 30 minutes, `main/Kconfig.projbuild:71-79`), the
+device enters light sleep: `device_sleep_service::Action::kEnterLightSleep` is
+dispatched to `EnterLightSleep()` in `main/device_sleep_runtime.cpp:490-492`,
+which stops Wi-Fi, puts the display to sleep, and arms a GPIO wake.
+
+Craig's reasoning: waking back up from light sleep already costs about the
+same time as booting from scratch (`RestoreAfterLightSleep()` has to redo a
+real Wi-Fi reassociation and a forced SD remount — see the comment on
+`ForceDisplaySleep`'s Wi-Fi-reassociation cost in `lock_screen_runtime.cpp`'s
+`Show()`), so light sleep isn't actually buying much wake-latency benefit
+over a full power-off at that point, while a full shutdown saves
+meaningfully more battery. Wanted: once the light-sleep timeout elapses, the
+device should fully shut off (same mechanism as a manual shutdown,
+`power_service::RequestShutdown()`) instead of entering light sleep — and
+this auto-triggered shutdown should freeze on the lock/shutdown screen the
+same way a manual shutdown now does (`lock_screen_runtime::ShowForShutdown()`,
+added for the "Full shutdown should freeze on the lock screen's todo
+summary" item, `docs/todo-archive.md`).
+
+Open questions for whoever designs this:
+- Whether to repurpose `FOLLOWUP_AUTO_SLEEP_LIGHT_SLEEP_TIMEOUT_SECONDS` as
+  the auto-shutdown timeout directly, or add a distinct Kconfig option —
+  "light sleep" and "auto shutdown" are conceptually different features even
+  if this item replaces one with the other at the same trigger point.
+- The same `BlockerReason`s that already gate light sleep (recording active,
+  recording saving, audio playback, storage write, Wi-Fi AP mode, time sync,
+  display refresh — `components/device_sleep_service/include/device_sleep_service.h:39-45`,
+  checked in `main/device_sleep_runtime.cpp`'s blocker-evaluation function)
+  presumably should gate auto-shutdown too.
+- The USB-present case: `power_service::RequestShutdown()` doesn't actually
+  cut power while VBUS is present — the call returns and the board stays
+  running. Auto light sleep today still works fine on USB power (Wi-Fi
+  stops, display sleeps, GPIO wake still armed). If auto-shutdown fires
+  while on USB, naively reusing `RequestShutdown()` would leave the device
+  sitting on the frozen lock/shutdown screen, powered but not actually
+  asleep or off, until a button press — a real regression from today's
+  behavior on a plugged-in device. Worth deciding whether auto-shutdown
+  should only trigger on battery power, falling back to today's light-sleep
+  behavior while USB is present.
+- This is a real, deliberate UX change beyond just "one more sleep stage":
+  today, any button instantly wakes the device from light sleep; after this
+  change, once the timeout elapses, waking requires a full boot cycle (PWR
+  press through the AXP2101's normal power-on path) instead. That's exactly
+  the tradeoff Craig wants (his read: the wake cost is already boot-cost
+  today), but it's worth calling out explicitly since it's a bigger
+  behavioral change than the wording ("shut off instead of light sleep")
+  might suggest at a glance.
+
+Own branch/PR.
