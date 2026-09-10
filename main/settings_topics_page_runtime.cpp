@@ -197,6 +197,17 @@ void ShowToastText(const char* text)
     (void)overlay_runtime::ShowToast(toast);
 }
 
+// For toasts shown right before another overlay (the keyboard) takes over the screen --
+// composited overlays stack (keyboard, then toast, on top), so an indefinite toast here would
+// otherwise sit on screen over the keyboard until something else happened to clear it.
+void ShowToastTextForDuration(const char* text, uint32_t duration_ms)
+{
+    epaper_ui::ToastState toast = {};
+    toast.visible = true;
+    toast.body_text = text;
+    (void)overlay_runtime::ShowToastForDuration(toast, duration_ms);
+}
+
 // Distills a spoken transcript ("this one's for the kitchen renovation project") into a short
 // topic name via a second, cheap Gemini call -- falls back to the raw transcript if that call
 // fails, since a slightly verbose name beats an empty field.
@@ -234,7 +245,7 @@ void ProcessTopicCapture(recording_service::RecordedClipPtr clip)
     }
     (void)overlay_runtime::ClearToast();
     if (name.empty()) {
-        ShowToastText("Didn't catch that -- try typing instead");
+        ShowToastTextForDuration("Didn't catch that -- try typing instead", 2500);
     }
     (void)ShowNewTopicKeyboard(name);
 }
@@ -276,7 +287,7 @@ void StartTopicCapture()
     if (session.phase != recording_session_service::Phase::kIdle &&
         session.phase != recording_session_service::Phase::kComplete &&
         session.phase != recording_session_service::Phase::kFailed) {
-        ShowToastText("Finish the recording first");
+        ShowToastTextForDuration("Finish the recording first", 2000);
         return;
     }
 
@@ -515,7 +526,8 @@ void HandleNewTopicActivated()
     }
     // No working Gemini call available (no Wi-Fi / not authenticated) -- creation stays possible
     // via the keyboard, just without the voice shortcut.
-    ShowToastText("Connect to Wi-Fi to add topics by voice -- use the keyboard instead");
+    ShowToastTextForDuration("Connect to Wi-Fi to add topics by voice -- use the keyboard instead",
+                             2500);
     (void)ShowNewTopicKeyboard({});
 }
 
