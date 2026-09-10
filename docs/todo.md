@@ -223,3 +223,38 @@ HTTP status) and make sure every write site that flips `has_transcript`
 also clears/sets the error fields consistently.
 
 Own branch/PR.
+
+## Consolidate Settings, WiFi, and Time behind a single footer icon
+
+Found while fixing the Settings page overflow bug (archive-days picker
+running off the bottom of the screen — see the scrolling fix). Today
+Settings, WiFi, and Time are three separate top-level screens
+(`ScreenId::kSettings`/`kWifi`/`kTime`), each with its own dedicated
+Home-screen footer icon (`NavigationItemRole::kFooterSettings`/
+`kFooterWifi`/`kFooterTime`, `components/page_navigation/navigation_model.cpp:29-31`).
+The Settings screen itself already has inline WiFi-enable/Access-Point
+toggles (`docs/user-manual.md`'s Settings section, items 1-2) — the
+separate WiFi screen is specifically the network scan/connect list, and
+Time is timezone/clock entry.
+
+Craig wants these consolidated behind a single footer icon rather than
+three, presumably with Settings becoming a hub that links to WiFi
+(network list) and Time as sub-screens, freeing up two Home-footer slots
+for the same reason the Settings page itself needed scrolling: things
+keep growing and the space is fixed. Worth a design pass on:
+- What the single footer icon opens — the existing Settings screen with
+  new entry points to WiFi/Time (e.g. rows that navigate there), vs. a
+  new intermediate menu.
+- What "back" means from WiFi/Time afterward — today they're reached (and
+  presumably exited) as peers of Settings via the footer; if they become
+  children of Settings, back-navigation should return to Settings, not
+  Home, and the footer's Home/Settings/WiFi/Time role model
+  (`page_navigation`, `footer_runtime`) will need to reflect that they're
+  no longer top-level footer destinations.
+- Whether this should land before or after the Settings-scrolling fix,
+  since consolidating could itself reduce how much content needs to
+  scroll on Settings (WiFi/Time move to their own screens rather than
+  adding more to Settings directly) — though the inline WiFi/AP toggles
+  and Storage/Todos sections would still remain on Settings either way.
+
+Own branch/PR.
