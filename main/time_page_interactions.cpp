@@ -38,6 +38,11 @@ ActivateResult HandlePrimaryActivate(TimePageCoordinator& coordinator)
         case NavigationItemRole::kTimePageSave:
             result.intent = ActivateIntent::kSave;
             break;
+        case NavigationItemRole::kTimePageBackButton:
+            // Returns to the Settings hub -- this page is only ever reached from there now, so
+            // there's no other source to track (unlike Details' multi-source back button).
+            result.intent = ActivateIntent::kShowSettings;
+            break;
         case NavigationItemRole::kFooterHome:
             result.intent = ActivateIntent::kShowHome;
             break;

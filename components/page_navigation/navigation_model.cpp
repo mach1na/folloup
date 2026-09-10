@@ -66,30 +66,21 @@ NavigationModel BuildSettingsPageNavigationModel()
     NavigationModel model = {};
     model.scope = NavigationScope::kSettings;
 
-    AddItem(model,
-            NavigationItemSection::kSettingsPageMenu,
-            NavigationItemRole::kSettingsWifiToggle,
-            0);
-    AddItem(model,
-            NavigationItemSection::kSettingsPageMenu,
-            NavigationItemRole::kSettingsEnableApToggle,
-            1);
-    AddItem(model,
-            NavigationItemSection::kSettingsPageMenu,
-            NavigationItemRole::kSettingsEnableOtgButton,
-            2);
-    AddItem(model,
-            NavigationItemSection::kSettingsPageMenu,
-            NavigationItemRole::kSettingsFormatSdButton,
-            3);
+    // Settings is a hub: 4 headings that navigate to a dedicated sub-page, plus Manual (replay
+    // onboarding) as a direct action rather than a heading -- it's a one-shot action, not
+    // something to configure.
+    AddItem(model, NavigationItemSection::kSettingsPageMenu,
+            NavigationItemRole::kSettingsMenuNetwork, 0);
+    AddItem(model, NavigationItemSection::kSettingsPageMenu,
+            NavigationItemRole::kSettingsMenuTime, 1);
+    AddItem(model, NavigationItemSection::kSettingsPageMenu,
+            NavigationItemRole::kSettingsMenuStorage, 2);
+    AddItem(model, NavigationItemSection::kSettingsPageMenu,
+            NavigationItemRole::kSettingsMenuTodos, 3);
     AddItem(model,
             NavigationItemSection::kSettingsPageMenu,
             NavigationItemRole::kSettingsManualOnboardingButton,
             4);
-    AddItem(model,
-            NavigationItemSection::kSettingsPageMenu,
-            NavigationItemRole::kSettingsArchiveAfterInput,
-            5);
     AddFooterItems(model, /*is_home_screen=*/false);
     return model;
 }
@@ -99,26 +90,41 @@ NavigationModel BuildWifiPageNavigationModel()
     NavigationModel model = {};
     model.scope = NavigationScope::kWifi;
 
+    // WiFi is reached from the Settings hub's "Network" heading now, not its own footer icon --
+    // the WiFi-enable/Access-Point toggles moved here from the old flat Settings page, and a Back
+    // button (below) returns to the hub.
     AddItem(model,
             NavigationItemSection::kWifiPageControls,
-            NavigationItemRole::kWifiPageNetworkList,
+            NavigationItemRole::kWifiPageWifiToggle,
             0);
     AddItem(model,
             NavigationItemSection::kWifiPageControls,
-            NavigationItemRole::kWifiPagePasswordInput,
+            NavigationItemRole::kWifiPageEnableApToggle,
             1);
     AddItem(model,
             NavigationItemSection::kWifiPageControls,
-            NavigationItemRole::kWifiPagePasswordVisibilityButton,
+            NavigationItemRole::kWifiPageNetworkList,
             2);
     AddItem(model,
             NavigationItemSection::kWifiPageControls,
-            NavigationItemRole::kWifiPageScanButton,
+            NavigationItemRole::kWifiPagePasswordInput,
             3);
     AddItem(model,
             NavigationItemSection::kWifiPageControls,
-            NavigationItemRole::kWifiPageConnectButton,
+            NavigationItemRole::kWifiPagePasswordVisibilityButton,
             4);
+    AddItem(model,
+            NavigationItemSection::kWifiPageControls,
+            NavigationItemRole::kWifiPageScanButton,
+            5);
+    AddItem(model,
+            NavigationItemSection::kWifiPageControls,
+            NavigationItemRole::kWifiPageConnectButton,
+            6);
+    AddItem(model,
+            NavigationItemSection::kWifiPageControls,
+            NavigationItemRole::kWifiPageBackButton,
+            7);
     AddFooterItems(model, /*is_home_screen=*/false);
     return model;
 }
@@ -139,6 +145,38 @@ NavigationModel BuildTimePageNavigationModel()
     AddItem(model, NavigationItemSection::kTimePageControls, NavigationItemRole::kTimePageDay, 5);
     AddItem(model, NavigationItemSection::kTimePageControls, NavigationItemRole::kTimePageYear, 6);
     AddItem(model, NavigationItemSection::kTimePageControls, NavigationItemRole::kTimePageSave, 7);
+    // Reached from the Settings hub's "Time" heading now, not its own footer icon -- Back
+    // returns to the hub.
+    AddItem(model, NavigationItemSection::kTimePageControls,
+            NavigationItemRole::kTimePageBackButton, 8);
+    AddFooterItems(model, /*is_home_screen=*/false);
+    return model;
+}
+
+NavigationModel BuildSettingsStoragePageNavigationModel()
+{
+    NavigationModel model = {};
+    model.scope = NavigationScope::kSettingsStorage;
+
+    AddItem(model, NavigationItemSection::kSettingsStoragePageControls,
+            NavigationItemRole::kSettingsStorageEnableOtgButton, 0);
+    AddItem(model, NavigationItemSection::kSettingsStoragePageControls,
+            NavigationItemRole::kSettingsStorageFormatSdButton, 1);
+    AddItem(model, NavigationItemSection::kSettingsStoragePageControls,
+            NavigationItemRole::kSettingsStorageBackButton, 2);
+    AddFooterItems(model, /*is_home_screen=*/false);
+    return model;
+}
+
+NavigationModel BuildSettingsTodosPageNavigationModel()
+{
+    NavigationModel model = {};
+    model.scope = NavigationScope::kSettingsTodos;
+
+    AddItem(model, NavigationItemSection::kSettingsTodosPageControls,
+            NavigationItemRole::kSettingsTodosArchiveAfterInput, 0);
+    AddItem(model, NavigationItemSection::kSettingsTodosPageControls,
+            NavigationItemRole::kSettingsTodosBackButton, 1);
     AddFooterItems(model, /*is_home_screen=*/false);
     return model;
 }

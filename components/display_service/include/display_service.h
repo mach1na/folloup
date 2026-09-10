@@ -5,6 +5,8 @@
 #include "epaper_ui/global_footer.h"
 #include "epaper_ui/keyboard.h"
 #include "epaper_ui/settings_page.h"
+#include "epaper_ui/settings_storage_page.h"
+#include "epaper_ui/settings_todos_page.h"
 #include "epaper_ui/card_modal.h"
 #include "epaper_ui/select_modal.h"
 #include "epaper_ui/dashboard_page.h"
@@ -29,6 +31,8 @@ enum class ScreenId {
     kSettings,
     kWifi,
     kTime,
+    kSettingsStorage,
+    kSettingsTodos,
     kVibeCheck,
     kSummarize,
     kNotes,
@@ -91,6 +95,8 @@ ScreenId GetCurrentScreen();
 esp_err_t SetStatusBarState(const epaper_ui::StatusBarState& state);
 esp_err_t SetGlobalFooterState(const epaper_ui::GlobalFooterState& state);
 esp_err_t SetSettingsPageState(const epaper_ui::SettingsPageState& state);
+esp_err_t SetSettingsStoragePageState(const epaper_ui::SettingsStoragePageState& state);
+esp_err_t SetSettingsTodosPageState(const epaper_ui::SettingsTodosPageState& state);
 esp_err_t SetWifiPageState(const epaper_ui::WifiPageState& state);
 esp_err_t SetTimePageState(const epaper_ui::TimePageState& state);
 esp_err_t SetDashboardPageState(const epaper_ui::DashboardPageState& state);

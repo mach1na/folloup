@@ -36,6 +36,8 @@
 #include "recording_service.h"
 #include "sdkconfig.h"
 #include "settings_page_runtime.h"
+#include "settings_storage_page_runtime.h"
+#include "settings_todos_page_runtime.h"
 #include "details_page_runtime.h"
 #include "follow_up_page_runtime.h"
 #include "notes_page_runtime.h"
@@ -161,32 +163,39 @@ footer_runtime::LayoutState FooterLayoutForScreen(display_service::ScreenId scre
     footer_runtime::LayoutState layout = {};
     layout.visible = true;
     // Context-dependent, not a fixed set: on Home there's no point showing a "go Home" icon, so
-    // it shows everything else instead; everywhere else, Settings/Wifi/Time/Sticky aren't needed
-    // mid-task and just get in the way of the one icon that matters -- the way back to Home. Mic
+    // it shows everything else instead; everywhere else, Settings/Sticky aren't needed mid-task
+    // and just get in the way of the one icon that matters -- the way back to Home. Mic
     // (press-and-hold-to-record) stays visible everywhere either way, since it's the core action
     // and was never part of this visibility split. Each page's NavigationModel mirrors this same
     // split (see AddFooterItems in components/page_navigation/navigation_model.cpp) so roving
     // focus can't land on an icon the user can't see.
+    //
+    // WiFi and Time no longer have footer icons of their own -- they're reached from the
+    // Settings hub instead, so show_wifi/show_time are permanently false now. Each page's own
+    // NavigationModel (AddFooterItems) no longer places a kFooterWifi/kFooterTime item either,
+    // so those two roles are unreachable app-wide; left defined rather than removed outright to
+    // avoid a wide mechanical sweep of every page runtime's footer-index mapping for no behavior
+    // change.
     const bool is_home = screen == display_service::ScreenId::kHome;
     layout.show_settings = is_home;
-    layout.show_wifi = is_home;
-    layout.show_time = is_home;
+    layout.show_wifi = false;
+    layout.show_time = false;
     layout.show_sticky = is_home;
     layout.show_home = !is_home;
     layout.show_mic = true;
     return layout;
 }
 
-esp_err_t SyncSettingsPageState(bool request_refresh_if_active)
+esp_err_t SyncSettingsStoragePageState(bool request_refresh_if_active)
 {
-    const bool active = ScreenActiveForRefresh(display_service::ScreenId::kSettings);
+    const bool active = ScreenActiveForRefresh(display_service::ScreenId::kSettingsStorage);
     const esp_err_t err =
         request_refresh_if_active && active
-            ? settings_page_runtime::UpdateDisplayStateAndRequestRefresh(
+            ? settings_storage_page_runtime::UpdateDisplayStateAndRequestRefresh(
                   display_service::RefreshMode::kPartial)
-            : settings_page_runtime::UpdateDisplayState();
+            : settings_storage_page_runtime::UpdateDisplayState();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(kTag, "Settings page state sync failed: %s", esp_err_to_name(err));
+        ESP_LOGW(kTag, "Settings storage page state sync failed: %s", esp_err_to_name(err));
     }
     return err;
 }
@@ -247,6 +256,71 @@ esp_err_t ShowSettingsScreen(display_service::RefreshMode refresh_mode)
     }
     return display_service::SetCurrentScreen(display_service::ScreenId::kSettings, refresh_mode,
                                              "show_settings_screen");
+}
+
+esp_err_t ShowSettingsStorageScreen(display_service::RefreshMode refresh_mode)
+{
+    SyncStatusBarState("show_settings_storage_screen");
+    page_input_runtime::ResetFocusForScreen(display_service::ScreenId::kSettingsStorage);
+    footer_runtime::SetLayoutState(
+        FooterLayoutForScreen(display_service::ScreenId::kSettingsStorage));
+    footer_runtime::SetProjectionState(page_input_runtime::BuildFooterProjectionForScreen(
+        display_service::ScreenId::kSettingsStorage));
+    const esp_err_t footer_err = footer_runtime::UpdateDisplayState();
+    if (footer_err != ESP_OK && footer_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Footer sync before settings storage screen failed: %s",
+                 esp_err_to_name(footer_err));
+    }
+    const esp_err_t storage_err = settings_storage_page_runtime::UpdateDisplayState();
+    if (storage_err != ESP_OK && storage_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Settings storage page sync before show failed: %s",
+                 esp_err_to_name(storage_err));
+    }
+    return display_service::SetCurrentScreen(display_service::ScreenId::kSettingsStorage,
+                                             refresh_mode, "show_settings_storage_screen");
+}
+
+esp_err_t ShowSettingsTodosScreen(display_service::RefreshMode refresh_mode)
+{
+    SyncStatusBarState("show_settings_todos_screen");
+    page_input_runtime::ResetFocusForScreen(display_service::ScreenId::kSettingsTodos);
+    footer_runtime::SetLayoutState(
+        FooterLayoutForScreen(display_service::ScreenId::kSettingsTodos));
+    footer_runtime::SetProjectionState(page_input_runtime::BuildFooterProjectionForScreen(
+        display_service::ScreenId::kSettingsTodos));
+    const esp_err_t footer_err = footer_runtime::UpdateDisplayState();
+    if (footer_err != ESP_OK && footer_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Footer sync before settings todos screen failed: %s",
+                 esp_err_to_name(footer_err));
+    }
+    const esp_err_t todos_err = settings_todos_page_runtime::UpdateDisplayState();
+    if (todos_err != ESP_OK && todos_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Settings todos page sync before show failed: %s",
+                 esp_err_to_name(todos_err));
+    }
+    return display_service::SetCurrentScreen(display_service::ScreenId::kSettingsTodos,
+                                             refresh_mode, "show_settings_todos_screen");
+}
+
+// Polls the deferred storage/todos-heading requests from the Settings hub (set by
+// page_input_runtime's show_storage/show_todos callbacks) -- deferred so the screen change
+// happens after input dispatch, not mid-dispatch, same reasoning as
+// ShowOnboardingFromSettingsIfRequested below.
+void ShowSettingsSubPageIfRequested()
+{
+    if (settings_page_runtime::ConsumePendingShowStorage()) {
+        const esp_err_t err = ShowSettingsStorageScreen(display_service::RefreshMode::kFull);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(kTag, "Show settings storage screen failed: %s", esp_err_to_name(err));
+        }
+        return;
+    }
+    if (settings_page_runtime::ConsumePendingShowTodos()) {
+        const esp_err_t err = ShowSettingsTodosScreen(display_service::RefreshMode::kFull);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(kTag, "Show settings todos screen failed: %s", esp_err_to_name(err));
+        }
+    }
 }
 
 esp_err_t ShowVibeCheckScreen(display_service::RefreshMode refresh_mode)
@@ -876,7 +950,7 @@ void HandleRecordingSessionEvent(const recording_session_service::Event& event, 
     switch (event.snapshot.phase) {
         case recording_session_service::Phase::kAwaitingTagSelection: {
             time_page_runtime::ClearPendingSelectModal();
-            settings_page_runtime::ClearPendingSelectModal();
+            settings_todos_page_runtime::ClearPendingSelectModal();
             const esp_err_t err =
                 overlay_runtime::ShowSelectModal(BuildRecordingTagSelectModalState());
             FlushOverlayFeedback();
@@ -1066,18 +1140,18 @@ void HandleStorageEvent(const storage_service::Event& event, void*)
             ESP_LOGW(kTag, "OTG modal update failed: %s", esp_err_to_name(overlay_err));
         }
         FlushOverlayFeedback();
-        (void)SyncSettingsPageState(true);
+        (void)SyncSettingsStoragePageState(true);
     }
 
     const bool formatting_in_progress =
         event.snapshot.operation == storage_service::Operation::kFormatSd &&
         event.snapshot.phase == storage_service::OperationPhase::kStarted;
     if (!formatting_in_progress) {
-        (void)SyncSettingsPageState(true);
+        (void)SyncSettingsStoragePageState(true);
         return;
     }
 
-    ESP_LOGI(kTag, "Storage intent: skipping settings page refresh during active format");
+    ESP_LOGI(kTag, "Storage intent: skipping settings storage page refresh during active format");
 }
 
 void HandleTimezoneEvent(const timezone_service::Event& event, void*)
@@ -1226,7 +1300,6 @@ void HandleWifiEvent(const wifi_service::Event& event, void*)
                  esp_err_to_name(status_bar_err));
     }
 
-    (void)SyncSettingsPageState(true);
     (void)SyncWifiPageState(true);
 }
 
@@ -1248,7 +1321,7 @@ void HandleDispatchedButtonEvent(const button_service::ButtonEventInfo& event)
                 overlay_result.select_modal_selected_index) &&
             !time_page_runtime::HandleSelectModalSubmit(
                 overlay_result.select_modal_selected_index) &&
-            !settings_page_runtime::HandleSelectModalSubmit(
+            !settings_todos_page_runtime::HandleSelectModalSubmit(
                 overlay_result.select_modal_selected_index)) {
             (void)recording_session_service::SubmitTagSelection(
                 overlay_result.select_modal_selected_index);
@@ -1344,6 +1417,7 @@ void HandleDispatchedButtonEvent(const button_service::ButtonEventInfo& event)
         HandleDetailsBackIfRequested();
         HandleOnboardingDismissIfRequested();
         ShowOnboardingFromSettingsIfRequested();
+        ShowSettingsSubPageIfRequested();
         FlushOverlayFeedback();
         return;
     }

@@ -12,15 +12,20 @@ constexpr int kSideInset = design::spacing::k16;
 constexpr int kTopGap = design::spacing::k24;
 constexpr int kHeadingBottomPadding = design::spacing::k24;
 constexpr int kSectionGap = design::spacing::k16;
+constexpr int kToggleNetworkGap = design::spacing::k16;
 constexpr int kPasswordActionGap = design::spacing::k16;
 constexpr int kActionButtonGap = design::spacing::k12;
 constexpr int kFooterButtonGap = design::spacing::k32;
+constexpr int kBackButtonGap = design::spacing::k12;
 
 struct Layout {
+    UiRect wifi_toggle = {};
+    UiRect access_point_toggle = {};
     UiRect network_list = {};
     UiRect password_input = {};
     UiRect scan_button = {};
     UiRect connect_button = {};
+    UiRect back = {};
 };
 
 NetworkListStyle BuildNetworkListStyle(int width, int panel_height)
@@ -40,7 +45,23 @@ Layout BuildLayout(int portrait_width, int portrait_height, const WifiPageState&
     const int title_bottom = title_y + LineHeight(kTitleRole);
     const int footer_top = portrait_height - design::global_footer::kBottomPadding -
                            design::global_footer::kButtonSize;
-    const int bottom_limit = std::max(title_bottom, footer_top - kFooterButtonGap);
+
+    MenuToggleStyle wifi_toggle_style = {};
+    wifi_toggle_style.width = page_width;
+    const UiRect wifi_toggle =
+        MenuToggleBounds(page_x, title_bottom + kHeadingBottomPadding, wifi_toggle_style);
+    MenuToggleStyle ap_toggle_style = wifi_toggle_style;
+    ap_toggle_style.bottom_border_thickness = 0;
+    const UiRect access_point_toggle =
+        MenuToggleBounds(page_x, wifi_toggle.bottom(), ap_toggle_style);
+    const int content_top = access_point_toggle.bottom() + kToggleNetworkGap;
+
+    ButtonStyle back_style = {};
+    back_style.width = page_width;
+    back_style.center_label = true;
+    const UiRect measured_back = ButtonBounds(page_x, 0, state.back, back_style);
+    const int bottom_limit = std::max(
+        content_top, footer_top - kFooterButtonGap - measured_back.height - kBackButtonGap);
 
     PasswordInputStyle password_style = {};
     password_style.width = page_width;
@@ -51,12 +72,11 @@ Layout BuildLayout(int portrait_width, int portrait_height, const WifiPageState&
         PasswordInputBounds(page_x, 0, state.password_input, password_style);
     const UiRect measured_button = ButtonBounds(page_x, 0, state.scan_button, action_style);
     const int action_y = std::max(
-        title_bottom + kHeadingBottomPadding + kSectionGap + measured_password_input.height +
-            kPasswordActionGap,
+        content_top + kSectionGap + measured_password_input.height + kPasswordActionGap,
         bottom_limit - measured_button.height);
     const UiRect password_input = PasswordInputBounds(
         page_x,
-        std::max(title_bottom + kHeadingBottomPadding + kSectionGap,
+        std::max(content_top + kSectionGap,
                  action_y - kPasswordActionGap - measured_password_input.height),
         state.password_input,
         password_style);
@@ -64,21 +84,27 @@ Layout BuildLayout(int portrait_width, int portrait_height, const WifiPageState&
     NetworkListStyle network_style = BuildNetworkListStyle(page_width, 0);
     const int status_reserve =
         LineHeight(network_style.status_role) + network_style.section_gap;
-    const int network_top = title_bottom + kHeadingBottomPadding;
     network_style.panel_height =
-        std::max(0, password_input.y - kSectionGap - status_reserve - network_top);
+        std::max(0, password_input.y - kSectionGap - status_reserve - content_top);
     const UiRect network_list =
-        NetworkListPanelBounds(page_x, network_top, network_style);
+        NetworkListPanelBounds(page_x, content_top, network_style);
 
     const int button_width = action_style.width;
     const UiRect scan_button = ButtonBounds(page_x, action_y, state.scan_button, action_style);
     const UiRect connect_button = ButtonBounds(
         page_x + button_width + kActionButtonGap, action_y, state.connect_button, action_style);
+
+    const int back_y =
+        std::max(scan_button.bottom(), connect_button.bottom()) + kBackButtonGap;
+    const UiRect back = ButtonBounds(page_x, back_y, state.back, back_style);
     return {
+        .wifi_toggle = wifi_toggle,
+        .access_point_toggle = access_point_toggle,
         .network_list = network_list,
         .password_input = password_input,
         .scan_button = scan_button,
         .connect_button = connect_button,
+        .back = back,
     };
 }
 
@@ -91,6 +117,10 @@ UiRect WifiPageItemBounds(int portrait_width,
 {
     const Layout layout = BuildLayout(portrait_width, portrait_height, state);
     switch (item) {
+        case WifiPageItemId::kWifiToggle:
+            return layout.wifi_toggle;
+        case WifiPageItemId::kEnableApToggle:
+            return layout.access_point_toggle;
         case WifiPageItemId::kNetworkList:
             return layout.network_list;
         case WifiPageItemId::kPasswordInput:
@@ -107,6 +137,8 @@ UiRect WifiPageItemBounds(int portrait_width,
             return layout.scan_button;
         case WifiPageItemId::kConnectButton:
             return layout.connect_button;
+        case WifiPageItemId::kBack:
+            return layout.back;
         case WifiPageItemId::kNone:
         default:
             return {};
@@ -137,8 +169,11 @@ UiRect WifiPageItemVisualBounds(int portrait_width,
                                              state.password_input,
                                              style);
         }
+        case WifiPageItemId::kWifiToggle:
+        case WifiPageItemId::kEnableApToggle:
         case WifiPageItemId::kScanButton:
         case WifiPageItemId::kConnectButton:
+        case WifiPageItemId::kBack:
             return WifiPageItemBounds(portrait_width, portrait_height, state, item);
         case WifiPageItemId::kNone:
         default:
@@ -186,10 +221,13 @@ bool HitTestWifiPageItem(int portrait_width,
     }
 
     constexpr WifiPageItemId kItems[] = {
+        WifiPageItemId::kWifiToggle,
+        WifiPageItemId::kEnableApToggle,
         WifiPageItemId::kPasswordVisibilityButton,
         WifiPageItemId::kPasswordInput,
         WifiPageItemId::kScanButton,
         WifiPageItemId::kConnectButton,
+        WifiPageItemId::kBack,
         WifiPageItemId::kNetworkList,
     };
     for (WifiPageItemId candidate : kItems) {
@@ -280,6 +318,19 @@ void DrawWifiPage(uint8_t* framebuffer,
                        kTitleRole,
                        design::color::kBlack);
 
+    MenuToggleStyle wifi_toggle_style = {};
+    wifi_toggle_style.width = layout.wifi_toggle.width;
+    wifi_toggle_style.height = layout.wifi_toggle.height;
+    DrawMenuToggle(framebuffer, raw_width, raw_height, portrait_width, portrait_height,
+                   layout.wifi_toggle.x, layout.wifi_toggle.y, state.wifi_toggle,
+                   wifi_toggle_style);
+
+    MenuToggleStyle ap_toggle_style = wifi_toggle_style;
+    ap_toggle_style.bottom_border_thickness = 0;
+    DrawMenuToggle(framebuffer, raw_width, raw_height, portrait_width, portrait_height,
+                   layout.access_point_toggle.x, layout.access_point_toggle.y,
+                   state.access_point_toggle, ap_toggle_style);
+
     const NetworkListStyle network_style =
         BuildNetworkListStyle(layout.network_list.width, layout.network_list.height);
     DrawNetworkList(framebuffer,
@@ -327,6 +378,16 @@ void DrawWifiPage(uint8_t* framebuffer,
                {.variant = ButtonVariant::kPrimary,
                 .width = layout.connect_button.width,
                 .center_label = true});
+
+    DrawButton(framebuffer,
+               raw_width,
+               raw_height,
+               portrait_width,
+               portrait_height,
+               layout.back.x,
+               layout.back.y,
+               state.back,
+               {.width = layout.back.width, .center_label = true});
 
     DrawGlobalFooter(framebuffer,
                      raw_width,

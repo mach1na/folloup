@@ -13,6 +13,8 @@ namespace epaper_ui {
 struct MenuToggleState {
     std::string_view label_text = {};
     ToggleVisualState toggle_state = ToggleVisualState::kOff;
+
+    bool operator==(const MenuToggleState& other) const = default;
 };
 
 struct MenuToggleStyle {

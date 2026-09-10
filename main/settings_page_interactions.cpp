@@ -1,140 +1,86 @@
 #include "settings_page_interactions.h"
 
-#include "shared_page_interactions.h"
-
 namespace settings_page_interactions {
+namespace {
+
+using page_navigation::NavigationItemRole;
+
+}  // namespace
 
 ActivateResult HandlePrimaryActivate(const SettingsPageCoordinator& coordinator)
 {
-    const ActivateResult footer_result =
-        shared_page_interactions::HandleFooterPrimaryActivate<ActivateResult>(
-            coordinator,
-            ActivateIntent::kShowHome,
-            ActivateIntent::kForceRefresh,
-            ActivateIntent::kShowWifi,
-            ActivateIntent::kShowTime);
-    if (footer_result.handled) {
-        return footer_result;
-    }
+    ActivateResult result = {};
+    result.handled = true;
+    result.play_activate_cue = true;
 
-    if (coordinator.IsRoleFocused(page_navigation::NavigationItemRole::kSettingsWifiToggle)) {
-        return {
-            .intent = ActivateIntent::kToggleWifi,
-            .handled = true,
-            .play_activate_cue = true,
-        };
+    if (coordinator.IsRoleFocused(NavigationItemRole::kSettingsMenuNetwork)) {
+        result.intent = ActivateIntent::kShowNetwork;
+    } else if (coordinator.IsRoleFocused(NavigationItemRole::kSettingsMenuTime)) {
+        result.intent = ActivateIntent::kShowTime;
+    } else if (coordinator.IsRoleFocused(NavigationItemRole::kSettingsMenuStorage)) {
+        result.intent = ActivateIntent::kShowStorage;
+    } else if (coordinator.IsRoleFocused(NavigationItemRole::kSettingsMenuTodos)) {
+        result.intent = ActivateIntent::kShowTodos;
+    } else if (coordinator.IsRoleFocused(NavigationItemRole::kSettingsManualOnboardingButton)) {
+        result.intent = ActivateIntent::kShowOnboarding;
+    } else if (coordinator.IsRoleFocused(NavigationItemRole::kFooterHome)) {
+        result.intent = ActivateIntent::kShowHome;
+    } else {
+        result.handled = false;
+        result.play_activate_cue = false;
     }
-    if (coordinator.IsRoleFocused(
-            page_navigation::NavigationItemRole::kSettingsEnableApToggle)) {
-        return {
-            .intent = ActivateIntent::kToggleAccessPoint,
-            .handled = true,
-            .play_activate_cue = true,
-        };
-    }
-    if (coordinator.IsRoleFocused(
-            page_navigation::NavigationItemRole::kSettingsEnableOtgButton)) {
-        return {
-            .intent = ActivateIntent::kEnableOtg,
-            .handled = true,
-            .play_activate_cue = true,
-        };
-    }
-    if (coordinator.IsRoleFocused(
-            page_navigation::NavigationItemRole::kSettingsFormatSdButton)) {
-        return {
-            .intent = ActivateIntent::kShowFormatSdModal,
-            .handled = true,
-            .play_activate_cue = true,
-        };
-    }
-    if (coordinator.IsRoleFocused(
-            page_navigation::NavigationItemRole::kSettingsManualOnboardingButton)) {
-        return {
-            .intent = ActivateIntent::kShowOnboarding,
-            .handled = true,
-            .play_activate_cue = true,
-        };
-    }
-    if (coordinator.IsRoleFocused(
-            page_navigation::NavigationItemRole::kSettingsArchiveAfterInput)) {
-        return {
-            .intent = ActivateIntent::kShowArchiveAfterModal,
-            .handled = true,
-            .play_activate_cue = true,
-        };
-    }
-
-    return {};
+    return result;
 }
 
-void ApplyPrimaryActivateResult(const ActivateResult& result,
-                                const ActivateCallbacks& callbacks)
+void ApplyPrimaryActivateResult(const ActivateResult& result, const ActivateCallbacks& callbacks)
 {
-    if (!result.handled) {
-        return;
-    }
-
     switch (result.intent) {
         case ActivateIntent::kShowHome:
             if (callbacks.show_home) {
                 callbacks.show_home();
             }
-            return;
-        case ActivateIntent::kShowWifi:
-            if (callbacks.show_wifi) {
-                callbacks.show_wifi();
+            break;
+        case ActivateIntent::kShowNetwork:
+            if (callbacks.show_network) {
+                callbacks.show_network();
             }
-            return;
+            break;
         case ActivateIntent::kShowTime:
             if (callbacks.show_time) {
                 callbacks.show_time();
             }
-            return;
-        case ActivateIntent::kForceRefresh:
-            if (callbacks.force_refresh) {
-                callbacks.force_refresh();
+            break;
+        case ActivateIntent::kShowStorage:
+            if (callbacks.show_storage) {
+                callbacks.show_storage();
             }
-            return;
-        case ActivateIntent::kToggleWifi:
-            if (callbacks.toggle_wifi) {
-                callbacks.toggle_wifi();
+            break;
+        case ActivateIntent::kShowTodos:
+            if (callbacks.show_todos) {
+                callbacks.show_todos();
             }
-            return;
-        case ActivateIntent::kToggleAccessPoint:
-            if (callbacks.toggle_access_point) {
-                callbacks.toggle_access_point();
-            }
-            return;
-        case ActivateIntent::kEnableOtg:
-            if (callbacks.enable_otg) {
-                callbacks.enable_otg();
-            }
-            return;
-        case ActivateIntent::kShowFormatSdModal:
-            if (callbacks.show_format_sd_modal) {
-                callbacks.show_format_sd_modal();
-            }
-            return;
+            break;
         case ActivateIntent::kShowOnboarding:
             if (callbacks.show_onboarding) {
                 callbacks.show_onboarding();
             }
-            return;
-        case ActivateIntent::kShowArchiveAfterModal:
-            if (callbacks.show_archive_after_modal) {
-                callbacks.show_archive_after_modal();
-            }
-            return;
+            break;
         case ActivateIntent::kNone:
         default:
-            return;
+            break;
     }
 }
 
 FocusMoveResult HandleMoveFocus(SettingsPageCoordinator& coordinator, int delta)
 {
-    return shared_page_interactions::HandleMoveFocus(coordinator, delta);
+    FocusMoveResult result = {};
+    if (!coordinator.MoveFocus(delta)) {
+        return result;
+    }
+    result.handled = true;
+    result.play_navigation_cue = true;
+    result.apply_page_state = true;
+    return result;
 }
 
 }  // namespace settings_page_interactions

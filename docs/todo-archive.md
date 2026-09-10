@@ -1232,3 +1232,71 @@ Verified on-device: repeatedly recording a Task and immediately locking no
 longer shows stale/missing todo data on the first paint; normal lock/unlock
 timing still feels immediate; the shutdown-freeze regression cases from the
 earlier PR still work. Craig confirmed "all looks great."
+
+## ~~Consolidate Settings, WiFi, and Time behind a single footer icon~~ — resolved
+
+Found while fixing the Settings page overflow bug (archive-days picker
+running off the bottom of the screen). Settings, WiFi, and Time were three
+separate top-level screens, each with its own dedicated Home-footer icon.
+Craig wanted these consolidated behind a single "Settings" icon, phone-
+Settings-style: a hub listing section headings, each opening a dedicated
+sub-page — chosen headings (Option A of three drafted): **Network, Time,
+Storage, Todos**, plus **Manual** (replay onboarding) as a direct action on
+the hub rather than a heading.
+
+Researched via two parallel Explore passes before implementing: one mapped
+the `ScreenId`/`Show*Screen` pattern, the footer role/visibility model
+(`FooterLayoutForScreen`/`AddFooterItems`), and the existing "return to a
+specific parent" precedents (`DetailsPageSource`, and a simpler boolean
+already used for "Manual launched from Settings, dismiss returns there");
+the other produced the exact 10-file checklist for adding one brand-new
+`ScreenId` end to end (`display_service.h`/`.cpp`, `ui_refresh_runtime`
+`SurfaceKey`/`SurfaceIndex`, `page_navigation` role/model, the coordinator/
+runtime/interactions trio + both `CMakeLists.txt`s, `page_input_runtime.cpp`'s
+4 screen-id switches, `app_shell.cpp`'s `Show*Screen` + invocation wiring).
+
+Design landed on:
+- **Settings hub** = `ScreenId::kSettings` itself, repurposed rather than
+  replaced (same screen, same footer icon, same plumbing) — only its
+  render/coordinator/interactions changed, from a flat toggle/button list
+  to a 4-heading menu (reusing `epaper_ui`'s `menu_item`/`menu_container`
+  widgets, the same ones Home's own dashboard menu uses) plus the Manual
+  button.
+- **Network** = the existing WiFi screen, with the WiFi-enable/Access-Point
+  toggles moved onto it from the old flat Settings page (they didn't live
+  there before).
+- **Time** = the existing Time screen, content unchanged.
+- **Storage** and **Todos** = two brand-new screens (`ScreenId::kSettingsStorage`/
+  `kSettingsTodos`, the latter not `kTodos` — already the Todos *timeline*
+  screen), each following the 10-step checklist, carrying content moved
+  straight off the old flat Settings page (SD status/OTG/Format SD; the
+  Archive-after picker) with no new widgets needed.
+- **Back navigation**: each of the 4 sub-pages got its own page-owned Back
+  button (mirroring Details' existing pattern of a dedicated back control
+  separate from the footer's Home icon) that always returns to the
+  Settings hub — simpler than `DetailsPageSource` since these sub-pages
+  have exactly one possible source, so no source-tracking enum was needed.
+  WiFi's and Time's interactions layers already had dead, generically-written
+  `kShowSettings` intent plumbing sitting unused (their nav models never
+  placed a reachable `kFooterSettings` item) — the new Back buttons revive
+  that existing plumbing instead of adding a parallel one.
+- **Footer cleanup**: Home's footer and `AddFooterItems` stopped placing
+  WiFi/Time icons; `NavigationItemRole::kFooterWifi`/`kFooterTime` and
+  `FooterFocusItem::kWifi`/`kTime` were left defined but now permanently
+  unreachable, rather than doing a wide mechanical sweep of every page
+  runtime's hand-duplicated footer-index mapping for no behavior change.
+
+One self-caught fix along the way: `MenuToggleState` had no `operator==`,
+which the newly-`MenuToggleState`-carrying `WifiPageState`'s defaulted
+`operator==` needed — added it (a small, safe, additive fix, same shape as
+every other state struct's).
+
+Verified on-device end to end: Home footer now shows only Settings/Sticky;
+the Settings hub's 4 headings + Manual all navigate correctly; Network
+shows the moved WiFi/AP toggles plus the original network list/scan/connect
+working unchanged; Time unchanged plus its new Back button; Storage and
+Todos show their moved content (Format SD confirmation, Archive-after
+picker) working unchanged; every sub-page's Back button returns to the hub
+(not Home) while the footer's own Home icon still jumps straight to Home;
+Manual still replays onboarding and returns to the hub afterward. Craig
+confirmed "all looks great."
