@@ -186,3 +186,40 @@ Open questions for whoever designs this:
   might suggest at a glance.
 
 Own branch/PR.
+
+## Surface why a transcription failed, not just that it did
+
+Craig's had a few transcriptions fail and wants to see why.
+
+Today the real failure detail exists but doesn't last: `gemini_service::Transcribe`'s
+result flows into `transcription_service`'s in-memory snapshot
+(`s_last_http_status`/`s_last_error_code`/`s_last_error_message`,
+`components/transcription_service/transcription_service.cpp:20-23,91-96`), and
+`app_shell.cpp`'s recording-completion toast (`kComplete` case,
+`app_shell.cpp:897-919`) surfaces it as a generic, transient 2.5s toast —
+"Transcription failed," or "Gemini quota exceeded" specifically for a
+`RESOURCE_EXHAUSTED` error code. Once that toast clears, the detail is gone:
+`RecordingMetadata` (`components/recording_archive_service/include/recording_archive_service.h:21-43`)
+only tracks `has_transcript` (bool), nothing about *why* it's false. An
+"Audio only" item you come back to later on Notes/Todos/Details has no way
+to show the reason, and a manual retry (Details page's Transcribe button,
+`main/details_page_runtime.cpp:277-299`, and Vibe Check's equivalent,
+`main/vibe_check_page_runtime.cpp`) reuses this same pipeline/toast, so a
+second failure is just as fleeting as the first.
+
+Likely fix: persist the last failure onto `RecordingMetadata` itself
+(e.g. `last_transcription_error_code`/`last_transcription_error_message`,
+alongside `has_transcript`), set whenever `transcription_service` reports a
+failure for that recording, cleared on a subsequent success. Surface it
+somewhere revisitable — the Details page seems like the natural spot,
+maybe as a line under the Transcribe button, or in the item-actions menu
+for an audio-only item on Notes/Todos.
+
+Worth weighing against the "Redundant derived state" item above: this is
+the same class of "extra field that must be kept in sync by hand" this
+codebase is already trying to reduce elsewhere, so keep the persisted
+fields minimal (probably just the human-readable message, not the raw
+HTTP status) and make sure every write site that flips `has_transcript`
+also clears/sets the error fields consistently.
+
+Own branch/PR.
