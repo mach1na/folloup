@@ -1343,3 +1343,37 @@ run to ~96 chars and would have overflowed the viewport. Added a
 
 Verified on-device: Craig confirmed "The error reporting for transcribe is
 working as well."
+
+## ~~Onboarding carousel's button-gesture slides describe the wrong hardware~~ — resolved
+
+The carousel's slide copy and artwork (`main/onboarding_page_coordinator.cpp`,
+`assets/images/slide{2,3,4}.png`) described a three-discrete-equal-buttons
+layout inherited from the Sticky port. Waveshare's actual controls are a
+rocker (tilt up/down + press in) plus two separate buttons, none of which
+matched what the slides claimed (a fabricated "double-press to lock",
+a fabricated "hold both keys to shut down", and navigation framed as three
+equal-weight keys).
+
+Rewrote slides 2-4's body text in `kSlides` to describe the real gestures,
+sourced from `docs/user-manual.md`'s already-accurate "At a glance: the
+buttons" section. The bigger part of the fix was the artwork: all 6 slide
+images (`assets/images/slide1.png` through `slide6.png`) were redrawn from
+scratch and regenerated through `scripts/generate_epaper_project_assets.py`,
+since slides 1/5/6 (previously untouched) also depicted the same wrong
+three-equal-bump silhouette even though they carry no button copy.
+
+Getting the control *placement* right took two passes. The first redraw put
+every control on one edge, which was still wrong — Craig corrected it with a
+reference photo of the actual device: the rocker sits on the top-left edge,
+while PWR (upper) and the Record/Action button (lower) are stacked on the
+top-right edge. The second pass fixed the topology, then Craig asked for two
+more changes: dim the *other* right-edge button for context on slides 2 and
+4 (so REC and PWR each stay visible as a landmark even on the slide that
+isn't about them), and redraw slides 1/5/6 with the same corrected topology
+for a consistent device illustration across the whole carousel. A real bug
+surfaced during that pass — the right-edge nub helpers hard-coded the
+narrow-body edge x-position used by slides 2/4, so on the wide-body slides
+the nubs rendered in the middle of the screen instead of at the edge; fixed
+by parameterizing the body width the nubs are drawn against.
+
+Verified on-device: Craig confirmed "much better."

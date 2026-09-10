@@ -21,16 +21,16 @@ constexpr std::array<Slide, 6> kSlides = {{
      "Your pocket voice notebook. Capture thoughts out loud and let Folloup keep them organized.",
      EmbeddedImageId::kSlide1},
     {"Capture in a tap",
-     "Press the mic to record a note, an idea, or a task. Everything is saved straight to the SD "
-     "card. Double-press to lock the screen.",
+     "Hold Record to capture a note, idea, or task -- saved straight to the SD card. A quick "
+     "press selects, same as the rocker.",
      EmbeddedImageId::kSlide2},
-    {"Navigate with keys",
-     "Key 1 selects, key 2 navigates up, and key 3 navigates down. Hold key 3 to exit certain "
-     "components.",
+    {"Navigate with the rocker",
+     "Tilt the rocker up or down to move your selection; press it in to select. Hold the "
+     "down-tilt to exit.",
      EmbeddedImageId::kSlide3},
     {"Sleep & power",
-     "The device sleeps when inactive. Hold keys 1 and 2 to shut it down; press and hold key 1 to "
-     "turn it on.",
+     "The device sleeps when inactive. Hold PWR for about a second to open a shut-down "
+     "confirmation.",
      EmbeddedImageId::kSlide4},
     {"Summaries with Gemini",
      "Connect Gemini and let Folloup transcribe your recordings and summarize your day for you.",
