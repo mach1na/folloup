@@ -4,6 +4,8 @@ Followup is a place to capture your thoughts — whether it's an idea, a to-do, 
 
 It runs on the [Waveshare ESP32-S3-ePaper-3.97](https://docs.waveshare.com/ESP32-S3-ePaper-3.97), so your thoughts live on a quiet, always-on screen you can place anywhere — a constant, low-interruption reminder instead of one more notification buried in your phone.
 
+For the full walkthrough of every screen and control, see the [user manual](docs/user-manual.md).
+
 ## One-Sentence Positioning
 
 **Followup is a voice-first thought-capture companion on always-on ePaper: record ideas, to-dos, and notes in the moment, let Gemini transcribe them and summarize what matters on demand, and keep your pending todos in view even when the screen is locked or off.**
@@ -97,6 +99,8 @@ Followup is driven entirely by three physical controls: a rocker, the Record but
 | PWR, hold 6s | Hardware power-off, straight from the PMIC, no matter what's on screen |
 
 Recording is exclusive to the Record button, so no other control can start or stop a capture by accident. The 6-second PWR hold bypasses the firmware entirely and always cuts power.
+
+See the [user manual](docs/user-manual.md) for how these controls apply on every screen.
 
 ## Product Value Summary
 
