@@ -48,6 +48,7 @@
 #include "summarize_page_runtime.h"
 #include "summary_service.h"
 #include "timezone_service.h"
+#include "topic_service.h"
 #include "transcription_retry_service.h"
 #include "transcription_service.h"
 #include "ui_refresh_runtime.h"
@@ -1716,6 +1717,14 @@ void InitRecordingArchiveService()
     }
 }
 
+void InitTopicService()
+{
+    const esp_err_t err = topic_service::Init();
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "Topic service init failed: %s", esp_err_to_name(err));
+    }
+}
+
 void InitGeminiService()
 {
     gemini_service::SetEventHandler(HandleGeminiEvent, nullptr);
@@ -1911,6 +1920,7 @@ void Run()
     InitDeviceSleepRuntime();
     InitTimezoneService();
     InitRecordingArchiveService();
+    InitTopicService();
     InitWifiService();
     InitRecordingService();
     InitTranscriptionService();

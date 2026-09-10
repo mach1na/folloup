@@ -79,6 +79,11 @@ onboarding, and a set of feature pages plus overlays) built on:
 - A `transcription_service` and a `summary_service` component that own the
   Gemini-backed transcription and summary flows respectively (these live in
   their own components, not inside `gemini_service`).
+- A `topic_service` component that owns the voice-created topic registry (a
+  single SD-JSON manifest, id-indexed so renaming/deleting a topic never
+  requires rewriting recording sidecars) -- an orthogonal categorization axis
+  on top of `recording_archive_service`'s `RecordingMetadata::tag`, referenced
+  by the new `RecordingMetadata::topic_ids` field there.
 - A ported mono SSD1677 e-paper panel driver. On this board the panel owns a
   dedicated SPI3 bus, so there is no shared-bus serialization to do — the
   Sticky's `shared_bus_service` has no counterpart here.
@@ -187,6 +192,7 @@ components/
   system_sound_service/
   task_config/
   timezone_service/
+  topic_service/
   transcription_service/
   wifi_service/
 partitions.csv
