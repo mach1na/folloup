@@ -93,21 +93,28 @@ This is the core interaction:
    seconds, it stops automatically.
 3. **Release the Record button.** You'll hear a stop cue, and Folloup
    immediately plays your recording back to you.
-4. **Choose a tag**, from a menu with four options:
+4. **Choose a tag**, from a menu with five options:
    - **Note** — a general thought.
    - **Task** — something to do. (This is what shows up on the **Todos**
      screen — the tag itself is called "Task," even though the screen
      that lists them is called "Todos.")
    - **Idea** — something to mull over later. Ideas are also what the
      [Vibe Check](#vibe-check) screen surfaces for triage.
+   - **Topic** — doesn't save a note at all. Folloup transcribes what
+     you said, distills it into a short name, and adds it as a new
+     [topic](#topics) (e.g. hold Record, say "kitchen renovation," pick
+     Topic — that project name now exists as a topic you can tag other
+     entries with). Nothing is saved to the SD card for this option,
+     same as Discard below.
    - **Discard** — throws the recording away. Nothing is saved to the SD
      card if you pick this — that's exactly why the review-then-tag order
      exists: you get to hear it back before deciding.
-5. If you tagged it as something other than Discard, and Folloup has WiFi
-   and a Gemini key configured, it transcribes the recording in the
+5. If you tagged it Note, Task, or Idea, and Folloup has WiFi and a
+   Gemini key configured, it transcribes the recording in the
    background — you'll see a brief "Transcribing recording..." message,
    then either a transcript being saved or a note that transcription
-   failed.
+   failed. Topic and Discard skip this: Topic transcribes immediately to
+   produce its name (see above), and Discard has nothing to transcribe.
 
 **If you're offline when you record**, the clip still saves to the SD
 card — it just gets marked as pending. The moment Folloup reconnects to
@@ -302,15 +309,13 @@ A list of your topics — labels you can use to group notes, ideas, and
 todos across a project, independent of their Note/Idea/Todo type. Three
 are there from the start (**Home**, **Car**, **Shopping**) so the list
 isn't empty on first boot; rename or delete them like any topic you add
-yourself.
+yourself. You can also create a topic by voice without coming here at
+all — see the **Topic** tag option in [Recording a
+thought](#recording-a-thought).
 
-- **New topic** — listens for about 4 seconds, transcribes what you said,
-  and opens the keyboard pre-filled with a short name distilled from it
-  so you can fix anything it misheard before saving. If Gemini isn't
-  reachable (no Wi-Fi, not signed in), it skips straight to an empty
-  keyboard instead — a toast explains why.
-- Select an existing topic to **Rename** (opens the keyboard, typed
-  only) or **Delete** it. Deleting asks you to confirm; anything already
+- **New topic** — opens the keyboard to type a name.
+- Select an existing topic to **Rename** (opens the keyboard) or
+  **Delete** it. Deleting asks you to confirm; anything already
   tagged with that topic simply loses
   it, keeping any other topics it has.
 

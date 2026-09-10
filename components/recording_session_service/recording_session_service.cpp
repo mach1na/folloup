@@ -15,6 +15,7 @@
 #include "playback_service.h"
 #include "storage_service.h"
 #include "system_sound_service.h"
+#include "topic_service.h"
 
 namespace recording_session_service {
 namespace {
@@ -32,16 +33,18 @@ constexpr const char* kTranscribingStatus = "Transcribing recording";
 constexpr const char* kSavedWithoutTranscriptStatus =
     "Recording saved without transcription";
 constexpr const char* kDiscardedStatus = "Recording discarded";
+constexpr const char* kAddingTopicStatus = "Adding topic";
 constexpr uint32_t kMinTranscriptionDurationMs = 500;
 constexpr uint32_t kFallbackAudioSampleRateHz = 24000;
 constexpr size_t kSignalWindowSamples = 240;
 constexpr int32_t kSpeechPeakThreshold = 700;
 constexpr size_t kMinSpeechWindows = 3;
 
-constexpr std::array<TagOption, 4> kTagOptions = {{
+constexpr std::array<TagOption, 5> kTagOptions = {{
     {.tag = recording_archive_service::RecordingTag::kNote, .label_text = "Note"},
     {.tag = recording_archive_service::RecordingTag::kTask, .label_text = "Task"},
     {.tag = recording_archive_service::RecordingTag::kIdea, .label_text = "Idea"},
+    {.label_text = "Topic", .is_topic = true},
     {.label_text = "Discard", .is_discard = true},
 }};
 
@@ -380,6 +383,53 @@ void MarkBlockedLocked(BlockedReason reason)
     s_snapshot.last_error_message.clear();
 }
 
+std::string TrimWhitespace(const std::string& text)
+{
+    const size_t start = text.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) {
+        return {};
+    }
+    const size_t end = text.find_last_not_of(" \t\r\n");
+    return text.substr(start, end - start + 1);
+}
+
+// Distills a spoken transcript ("this one's for the kitchen renovation project") into a short
+// topic name via a second, cheap Gemini call -- falls back to the raw transcript if that call
+// fails, since a slightly verbose name beats an empty one.
+std::string ExtractTopicName(const std::string& transcript)
+{
+    const std::string prompt =
+        "Extract a short topic or project name (2-4 words, title case, no punctuation) from "
+        "this spoken phrase. Respond with only the name, nothing else.\n\n" +
+        transcript;
+    const gemini_service::TextResult result = gemini_service::GenerateText(prompt);
+    if (result.success && !result.text.empty()) {
+        return TrimWhitespace(result.text);
+    }
+    return TrimWhitespace(transcript);
+}
+
+// Runs on gemini_service's shared worker task, queued by SubmitTagSelection's is_topic branch.
+void ProcessTopicFromRecording(recording_service::RecordedClipPtr clip)
+{
+    std::string name;
+    if (clip && !clip->empty()) {
+        const gemini_service::TranscriptionResult transcription =
+            gemini_service::Transcribe(*clip);
+        if (transcription.success && !transcription.transcript.empty()) {
+            name = ExtractTopicName(transcription.transcript);
+        }
+    }
+    clip.reset();
+
+    const std::string created_id = name.empty() ? std::string() : topic_service::Create(name);
+
+    std::lock_guard<std::mutex> lock(s_mutex);
+    s_snapshot.last_status_message =
+        !created_id.empty() ? ("Added as topic: " + name) : "Couldn't catch a topic name";
+    NotifyLocked();
+}
+
 }  // namespace
 
 esp_err_t Init()
@@ -414,7 +464,7 @@ void SetNetworkConnected(bool connected)
     s_network_connected.store(connected, std::memory_order_relaxed);
 }
 
-const std::array<TagOption, 4>& TagOptions()
+const std::array<TagOption, 5>& TagOptions()
 {
     return kTagOptions;
 }
@@ -647,6 +697,30 @@ bool SubmitTagSelection(int selected_index)
         s_snapshot.last_error_code.clear();
         s_snapshot.last_error_message.clear();
         NotifyLocked();
+        return true;
+    }
+
+    if (kTagOptions[static_cast<size_t>(selected_index)].is_topic) {
+        // Never archived -- transcribed straight from the in-memory clip and distilled into a
+        // topic name on gemini_service's worker task (Transcribe/GenerateText are blocking HTTP
+        // calls and must not run on the caller's task). The clip is handed to the worker job and
+        // discarded from recording_service immediately after, same as the normal transcribe path
+        // does right after transcription_service::BeginTranscription accepts a clip.
+        recording_service::RecordedClipPtr clip = recording_service::GetRecordedClip();
+        recording_service::DiscardClip();
+        {
+            std::lock_guard<std::mutex> lock(s_mutex);
+            s_snapshot.phase = Phase::kComplete;
+            s_snapshot.has_clip = false;
+            s_snapshot.clip_saved = false;
+            s_snapshot.transcript_saved = false;
+            s_snapshot.last_status_message = kAddingTopicStatus;
+            s_snapshot.last_error_code.clear();
+            s_snapshot.last_error_message.clear();
+            NotifyLocked();
+        }
+        gemini_service::RunOnWorker(
+            [clip]() mutable { ProcessTopicFromRecording(std::move(clip)); });
         return true;
     }
 

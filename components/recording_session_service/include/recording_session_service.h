@@ -79,6 +79,10 @@ struct TagOption {
     // archiving it; the `tag` field is unused. Marks intent explicitly so the
     // discard path can't break if the option order changes.
     bool is_discard = false;
+    // When true, the recording is never archived either -- instead it's transcribed in place,
+    // distilled into a short name, and added to topic_service's registry as a new topic. Like
+    // is_discard, `tag` is unused.
+    bool is_topic = false;
 };
 
 using EventHandler = void (*)(const Event& event, void* context);
@@ -92,7 +96,7 @@ void SetEventHandler(EventHandler handler, void* context);
 // attempted (and fail) instead of being flagged pending_transcription for automatic retry.
 void SetNetworkConnected(bool connected);
 Snapshot GetSnapshot();
-const std::array<TagOption, 4>& TagOptions();
+const std::array<TagOption, 5>& TagOptions();
 
 bool HandlePowerPressDown(const Context& context);
 bool HandlePowerLongPressStart(const Context& context);

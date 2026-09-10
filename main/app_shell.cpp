@@ -1420,13 +1420,6 @@ void HandleDispatchedButtonEvent(const button_service::ButtonEventInfo& event)
     // evaluated before per-screen page input. Taps (single/double click) fall
     // through the switch's default below and are routed to the page handlers.
     if (event.button == button_service::ButtonId::kAction) {
-        // Settings > Topics redirects this same hold to a topic-name voice capture instead,
-        // but only while "New Topic" is the focused item -- every other screen/focus keeps the
-        // gesture's normal app-wide meaning (record a note) unchanged.
-        if (display_service::GetCurrentScreen() == display_service::ScreenId::kSettingsTopics &&
-            settings_topics_page_runtime::HandleActionButtonEvent(event)) {
-            return;
-        }
         const recording_session_service::Context recording_context =
             BuildRecordingSessionContext();
         bool handled = false;

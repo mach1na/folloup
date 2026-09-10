@@ -2,7 +2,6 @@
 #define SETTINGS_TOPICS_PAGE_RUNTIME_H_
 
 #include "app_interaction_target.h"
-#include "button_service.h"
 #include "display_service.h"
 #include "esp_err.h"
 #include "footer_runtime.h"
@@ -33,18 +32,10 @@ bool ShowItemActionsModal();
 // unless this page's own action modal was the one open.
 bool HandleItemActionSelection(int selected_index);
 
-// Called when "New Topic" is activated by a quick tap (kSingleClick) -- always opens the
-// keyboard, empty. Voice creation is a press-and-hold gesture instead; see
-// HandleActionButtonEvent below.
+// Called when "New Topic" is activated -- opens the keyboard, empty. Voice-created topics are
+// created via the normal recording flow's "Save recording as" menu instead (see the "Topic"
+// option added to recording_session_service::TagOptions), not from this screen.
 void HandleNewTopicActivated();
-// Called from app_shell's global ACTION-button handling, before it would otherwise fall through
-// to recording_session_service's app-wide press-and-hold-to-record gesture. Returns false
-// (event not consumed, let the normal recording gesture proceed) unless "New Topic" is the
-// currently-focused item on this page -- in which case the hold is redirected to a topic voice
-// capture: press-and-hold records, release stops it, transcribes, and opens the keyboard
-// pre-filled with the extracted name. Falls back to a toast + empty keyboard if Gemini isn't
-// ready (no Wi-Fi / not authenticated) when the hold begins.
-bool HandleActionButtonEvent(const button_service::ButtonEventInfo& event);
 // Called once the Topics delete-confirm card modal's "Delete" action fires. Returns false if
 // there was no pending delete.
 bool DeleteConfirmedTopic();
