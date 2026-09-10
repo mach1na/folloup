@@ -26,9 +26,12 @@ void AddItem(NavigationModel& model,
 void AddFooterItems(NavigationModel& model, bool is_home_screen)
 {
     if (is_home_screen) {
+        // WiFi and Time no longer have footer icons of their own (reached from the Settings hub
+        // instead) -- kFooterWifi/kFooterTime are deliberately not added here, matching
+        // FooterLayoutForScreen's show_wifi/show_time now being permanently false. Leaving them
+        // in would have been exactly the bug this function's own comment above warns about:
+        // roving focus landing on an icon the user can't see.
         AddItem(model, NavigationItemSection::kFooter, NavigationItemRole::kFooterSettings, 1);
-        AddItem(model, NavigationItemSection::kFooter, NavigationItemRole::kFooterWifi, 2);
-        AddItem(model, NavigationItemSection::kFooter, NavigationItemRole::kFooterTime, 3);
         AddItem(model, NavigationItemSection::kFooter, NavigationItemRole::kFooterSticky, 4);
     } else {
         AddItem(model, NavigationItemSection::kFooter, NavigationItemRole::kFooterHome, 0);
