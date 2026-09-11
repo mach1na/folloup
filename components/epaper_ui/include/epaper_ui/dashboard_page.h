@@ -19,9 +19,9 @@ inline constexpr int kDashboardMenuItemCount = 4;
 // Fixed slot order of the dashboard menu (must match kMenuLabels in dashboard_page.cpp).
 enum class DashboardMenuItem : int {
     kFollowUp = 0,
-    kTopics,
-    kNotes,
     kTodos,
+    kNotes,
+    kTopics,
 };
 
 struct DashboardPageMenuState {
