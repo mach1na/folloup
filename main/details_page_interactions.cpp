@@ -23,6 +23,13 @@ ActivateResult HandlePrimaryActivate(DetailsPageCoordinator& coordinator)
         return result;
     }
 
+    if (coordinator.IsRoleFocused(NavigationItemRole::kDetailsPageEditTopicsButton)) {
+        result.intent = ActivateIntent::kEditTopics;
+        result.handled = true;
+        result.play_activate_cue = true;
+        return result;
+    }
+
     if (coordinator.IsRoleFocused(NavigationItemRole::kDetailsPageBackButton)) {
         result.intent = ActivateIntent::kShowPreviousPage;
         result.handled = true;
@@ -91,6 +98,11 @@ void ApplyPrimaryActivateResult(const ActivateResult& result, const ActivateCall
         case ActivateIntent::kPlayRecording:
             if (callbacks.play) {
                 callbacks.play();
+            }
+            break;
+        case ActivateIntent::kEditTopics:
+            if (callbacks.edit_topics) {
+                callbacks.edit_topics();
             }
             break;
         case ActivateIntent::kNone:

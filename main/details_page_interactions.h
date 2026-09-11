@@ -18,6 +18,7 @@ enum class ActivateIntent : uint8_t {
     kShowPreviousPage,
     kTranscribe,
     kPlayRecording,
+    kEditTopics,
 };
 
 struct ActivateResult {
@@ -37,6 +38,7 @@ struct ActivateCallbacks {
     std::function<void()> show_previous_page;
     std::function<void()> transcribe;
     std::function<void()> play;
+    std::function<void()> edit_topics;
 };
 
 ActivateResult HandlePrimaryActivate(DetailsPageCoordinator& coordinator);

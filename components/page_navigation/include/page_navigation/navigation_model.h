@@ -92,6 +92,7 @@ enum class NavigationItemRole : uint8_t {
     kTodosPageTimelineGroup,
     kFollowUpPageTimelineGroup,
     kDetailsPageScrollContainer,
+    kDetailsPageEditTopicsButton,
     kDetailsPageBackButton,
     kDetailsPageTranscribeButton,
     kOnboardingPageClose,

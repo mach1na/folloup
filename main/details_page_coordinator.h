@@ -43,6 +43,10 @@ public:
     // The primary action button plays the audio once a transcript exists, and
     // otherwise offers to transcribe it.
     bool has_transcript() const { return has_transcript_; }
+    const std::vector<std::string>& topic_ids() const { return topic_ids_; }
+    // Updates the in-memory topic_ids after a successful save, so re-opening "Edit topics"
+    // without leaving the page shows the just-saved state rather than the stale one.
+    void SetTopicIds(std::vector<std::string> topic_ids) { topic_ids_ = std::move(topic_ids); }
 
     const page_navigation::NavigationModel& navigation_model() const { return navigation_model_; }
     const page_navigation::RovingFocus& focus() const { return focus_; }
@@ -70,6 +74,7 @@ private:
     std::string transcript_text_ = {};
     bool has_transcript_ = false;
     bool has_audio_file_ = false;
+    std::vector<std::string> topic_ids_ = {};
     std::string last_transcription_error_ = {};
 };
 

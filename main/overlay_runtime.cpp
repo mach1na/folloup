@@ -1089,8 +1089,31 @@ app_interaction::InputResult HandleButtonEvent(const button_service::ButtonEvent
             switch (event.event) {
                 case button_service::ButtonEvent::kSingleClick:
                     if (button_service::IsPrimaryButton(event.button)) {
+                        const int index = CurrentSelectModalIndexLocked();
+                        const bool toggle_in_place =
+                            s_select_modal_state.multi_select && index >= 0 &&
+                            index < static_cast<int>(s_select_modal_state.items.size()) &&
+                            !s_select_modal_state.items[static_cast<size_t>(index)].is_submit;
+                        if (toggle_in_place) {
+                            epaper_ui::SelectModalItemState& item =
+                                s_select_modal_state.items[static_cast<size_t>(index)];
+                            item.checked = !item.checked;
+                            request_refresh = true;
+                            play_click = true;
+                            refresh_policy = DetermineOverlayRefreshPolicy(
+                                before, CaptureOverlayRefreshSnapshotLocked());
+                            break;
+                        }
                         result.select_modal_submitted = true;
-                        result.select_modal_selected_index = CurrentSelectModalIndexLocked();
+                        result.select_modal_selected_index = index;
+                        if (s_select_modal_state.multi_select) {
+                            result.select_modal_checked_items.reserve(
+                                s_select_modal_state.items.size());
+                            for (const epaper_ui::SelectModalItemState& item :
+                                 s_select_modal_state.items) {
+                                result.select_modal_checked_items.push_back(item.checked);
+                            }
+                        }
                         s_select_modal_state = {};
                         s_select_modal_focus.Configure(0);
                         AdvanceOverlayInteractionGenerationLocked();

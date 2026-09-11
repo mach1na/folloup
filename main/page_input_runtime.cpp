@@ -1706,6 +1706,7 @@ ButtonResult ApplyDetailsActivateResult(const details_page_interactions::Activat
     callbacks.show_previous_page = []() { details_page_runtime::RequestBack(); };
     callbacks.transcribe = []() { details_page_runtime::RequestTranscribe(); };
     callbacks.play = []() { details_page_runtime::RequestPlay(); };
+    callbacks.edit_topics = []() { details_page_runtime::ShowEditTopicsModal(); };
     details_page_interactions::ApplyPrimaryActivateResult(activation, callbacks);
     if (result.footer_item != footer_runtime::FooterFocusItem::kNone) {
         result.interaction_result.play_feedback = false;

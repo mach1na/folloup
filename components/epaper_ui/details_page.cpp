@@ -54,6 +54,7 @@ struct Layout {
     UiRect heading = {};
     UiRect header = {};
     UiRect scroll = {};
+    UiRect edit_topics_button = {};
     UiRect back_button = {};
     UiRect transcribe_button = {};
     int scroll_panel_height = 0;
@@ -72,18 +73,21 @@ Layout BuildLayout(int portrait_width, int portrait_height, bool show_transcribe
     const int scroll_top = layout.header.bottom() + kHeaderScrollGap;
     const int footer_top = FooterTop(portrait_height);
     const int button_height = design::button::kHeight;
-    const int button_top = std::max(scroll_top, footer_top - kButtonFooterGap - button_height);
-    layout.scroll_panel_height = std::max(0, button_top - scroll_top - kScrollButtonGap);
+    // Bottom row: Back (+ Transcribe when shown). Edit topics gets its own row just above it.
+    const int bottom_row_top = std::max(scroll_top, footer_top - kButtonFooterGap - button_height);
+    const int edit_topics_top = bottom_row_top - kButtonGap - button_height;
+    layout.scroll_panel_height = std::max(0, edit_topics_top - scroll_top - kScrollButtonGap);
     layout.scroll = {kMargin, scroll_top, page_width, layout.scroll_panel_height};
+    layout.edit_topics_button = {kMargin, edit_topics_top, page_width, button_height};
     if (show_transcribe) {
         // Back (secondary) on the left, Transcribe (primary) on the right, split evenly.
         const int half_width = std::max(0, (page_width - kButtonGap) / 2);
-        layout.back_button = {kMargin, button_top, half_width, button_height};
+        layout.back_button = {kMargin, bottom_row_top, half_width, button_height};
         const int right_x = kMargin + half_width + kButtonGap;
-        layout.transcribe_button = {right_x, button_top,
+        layout.transcribe_button = {right_x, bottom_row_top,
                                     std::max(0, portrait_width - kMargin - right_x), button_height};
     } else {
-        layout.back_button = {kMargin, button_top, page_width, button_height};
+        layout.back_button = {kMargin, bottom_row_top, page_width, button_height};
     }
     return layout;
 }
@@ -161,6 +165,10 @@ void DrawDetailsPage(uint8_t* framebuffer,
     DrawScrollContainer(framebuffer, raw_width, raw_height, portrait_width, portrait_height,
                         layout.scroll.x, layout.scroll.y, state.scroll_container,
                         ScrollStyle(page_width, layout.scroll_panel_height));
+
+    DrawButton(framebuffer, raw_width, raw_height, portrait_width, portrait_height,
+              layout.edit_topics_button.x, layout.edit_topics_button.y, state.edit_topics_button,
+              MakeButtonStyle(layout.edit_topics_button.width, ButtonVariant::kDefault));
 
     // When Transcribe is shown, Back drops to the secondary (kDefault) variant; alone it stays the
     // sole primary action.

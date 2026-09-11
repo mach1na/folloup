@@ -10,6 +10,14 @@ namespace epaper_ui {
 
 struct SelectModalItemState {
     std::string label_text = {};
+    // Only meaningful when the owning SelectModalState::multi_select is true. Renders a
+    // checkmark (SelectItemState::checked already supports this) and is toggled in place by a
+    // click rather than submitting the modal.
+    bool checked = false;
+    // Only meaningful when multi_select is true: a click on this item submits the modal (with
+    // the current checked state of every item) instead of toggling. Ignored otherwise -- a
+    // single-select modal always submits on click, exactly as before.
+    bool is_submit = false;
 };
 
 struct SelectModalState {
@@ -17,6 +25,10 @@ struct SelectModalState {
     std::string title_text = {};
     int selected_index = 0;
     std::vector<SelectModalItemState> items = {};
+    // When true, a click on a non-is_submit item toggles its `checked` flag and keeps the modal
+    // open, instead of the normal single-select submit-and-close. Existing single-select callers
+    // leave this false and see no behavior change.
+    bool multi_select = false;
 };
 
 UiRect SelectModalPanelBounds(int portrait_width,

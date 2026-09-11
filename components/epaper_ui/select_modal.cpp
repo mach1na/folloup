@@ -49,7 +49,7 @@ SelectListState BuildListState(const SelectModalState& state)
     list_state.selected_item_index = state.selected_index;
     list_state.items.reserve(state.items.size());
     for (const SelectModalItemState& item : state.items) {
-        list_state.items.push_back({.label_text = item.label_text});
+        list_state.items.push_back({.label_text = item.label_text, .checked = item.checked});
     }
     return list_state;
 }

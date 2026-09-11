@@ -1,5 +1,6 @@
 #include "details_page_runtime.h"
 
+#include <algorithm>
 #include <atomic>
 #include <climits>
 #include <memory>
@@ -11,10 +12,12 @@
 #include "followup_task_config.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "overlay_runtime.h"
 #include "page_navigation/page_focus_projection.h"
 #include "playback_service.h"
 #include "recording_archive_service.h"
 #include "recording_session_service.h"
+#include "topic_service.h"
 #include "ui_refresh_runtime.h"
 
 namespace details_page_runtime {
@@ -26,6 +29,14 @@ std::mutex s_mutex;
 DetailsPageCoordinator s_coordinator = {};
 int32_t s_interaction_generation = 1;
 std::atomic<bool> s_pending_back{false};
+
+// State for the "Edit topics" multi-select modal, mirroring the item-actions-pending pattern
+// used elsewhere (e.g. notes_page_runtime): set when the modal is shown, consumed on submit.
+bool s_edit_topics_pending = false;
+std::string s_edit_topics_recording_id;
+// Parallel to the modal's items (excluding the trailing "Done" row): topic id at index i is
+// modal item i, so a submitted checked-items vector can be mapped straight back to ids.
+std::vector<std::string> s_edit_topics_ids;
 
 // Re-transcription runs on a short-lived worker: reloading the WAV and starting the pipeline is far
 // too stack-heavy for the input/touch task that dispatches the tap. The flag serializes it to one
@@ -340,6 +351,93 @@ bool ExitActiveControl()
         (void)UpdateDisplayStateAndRequestRefresh(display_service::RefreshMode::kPartial);
     }
     return exited;
+}
+
+void ShowEditTopicsModal()
+{
+    std::string recording_id;
+    std::vector<std::string> current_topic_ids;
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        recording_id = s_coordinator.recording_id();
+        current_topic_ids = s_coordinator.topic_ids();
+    }
+    if (recording_id.empty()) {
+        return;
+    }
+
+    const topic_service::Snapshot snapshot = topic_service::GetSnapshot();
+    if (snapshot.topics.empty()) {
+        epaper_ui::ToastState toast = {};
+        toast.visible = true;
+        toast.body_text = "No topics yet -- add one in Settings";
+        (void)overlay_runtime::ShowToastForDuration(toast, 2500);
+        return;
+    }
+
+    epaper_ui::SelectModalState modal = {};
+    modal.multi_select = true;
+    modal.title_text = "Edit topics";
+    std::vector<std::string> topic_id_order;
+    topic_id_order.reserve(snapshot.topics.size());
+    for (const topic_service::Topic& topic : snapshot.topics) {
+        const bool checked = std::find(current_topic_ids.begin(), current_topic_ids.end(),
+                                       topic.id) != current_topic_ids.end();
+        modal.items.push_back({.label_text = topic.name, .checked = checked});
+        topic_id_order.push_back(topic.id);
+    }
+    modal.items.push_back({.label_text = "Done", .is_submit = true});
+
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_edit_topics_recording_id = recording_id;
+        s_edit_topics_ids = std::move(topic_id_order);
+        s_edit_topics_pending = true;
+    }
+    const esp_err_t err = overlay_runtime::ShowSelectModal(modal);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_edit_topics_pending = false;
+        ESP_LOGW(kTag, "Show edit topics modal failed: %s", esp_err_to_name(err));
+    }
+}
+
+bool HandleTopicsSelectionSubmit(const std::vector<bool>& checked_items)
+{
+    std::string recording_id;
+    std::vector<std::string> topic_id_order;
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (!s_edit_topics_pending) {
+            return false;
+        }
+        s_edit_topics_pending = false;
+        recording_id = std::move(s_edit_topics_recording_id);
+        topic_id_order = std::move(s_edit_topics_ids);
+        s_edit_topics_recording_id.clear();
+        s_edit_topics_ids.clear();
+    }
+    if (recording_id.empty()) {
+        return true;
+    }
+
+    std::vector<std::string> new_topic_ids;
+    for (size_t index = 0; index < topic_id_order.size() && index < checked_items.size();
+        ++index) {
+        if (checked_items[index]) {
+            new_topic_ids.push_back(topic_id_order[index]);
+        }
+    }
+
+    if (recording_archive_service::SetRecordingTopics(recording_id, new_topic_ids)) {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (s_coordinator.recording_id() == recording_id) {
+            s_coordinator.SetTopicIds(std::move(new_topic_ids));
+        }
+    } else {
+        ESP_LOGW(kTag, "Failed to save topics for recording %s", recording_id.c_str());
+    }
+    return true;
 }
 
 }  // namespace details_page_runtime
