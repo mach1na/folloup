@@ -7,6 +7,13 @@ via `git log`, not backfilled here.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-11
+
+### Changed
+
+- Reordered the Home screen's main menu to Follow up, Todos, Notes, Topics
+  (was Follow up, Topics, Notes, Todos).
+
 ## [0.2.0] - 2026-09-11
 
 ### Added

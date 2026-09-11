@@ -131,10 +131,10 @@ Below that is the main menu, in this order:
 
 - **Follow up** — anything you've flagged for later, regardless of what
   it's tagged as (badge shows how many).
+- **Todos** (badge shows how many) — your Task recordings.
+- **Notes** (badge shows how many) — your Note and Idea recordings.
 - **Topics** — browse everything tagged with a given [topic](#topics),
   including Gemini-generated summaries.
-- **Notes** (badge shows how many) — your Note and Idea recordings.
-- **Todos** (badge shows how many) — your Task recordings.
 
 Move between them by tilting the rocker, open one with the Record button
 or Select (pressing the rocker in).
