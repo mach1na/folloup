@@ -62,7 +62,13 @@ void ConfigurePmicRails(Axp2101* pmic)
     pmic->enableButtonBatteryCharge();
 
     // Hardware power key. Three behaviors layered on one physical key:
-    //   - 1s hold from off powers the board on.
+    //   - 512ms hold from off powers the board on. This is entirely PMIC-internal
+    //     (RTCLDO/bias stay alive even "off", watching PWRON) and requires one
+    //     *continuous* low level for the whole hold -- shortened from the previous
+    //     1s setting because that gives mechanical contact bounce on the physical
+    //     key less time to interrupt the hold and silently restart the timer,
+    //     which is the leading theory for `docs/todo.md`'s "holding PWR sometimes
+    //     doesn't power back on" report. Unconfirmed without on-device testing.
     //   - Short press and >=1s press each raise a distinct IRQ that the firmware owns
     //     (lock-screen toggle and shutdown confirmation respectively).
     //   - A sustained 6s hold lets the PMIC hard-cut the rails, so there is always a
@@ -70,7 +76,7 @@ void ConfigurePmicRails(Axp2101* pmic)
     // IrqLevelTime is what separates the short IRQ from the long one, so it has to sit
     // well below the 6s hardware cut for the software path to get a chance.
     pmic->SetPowerKeyPressOffTime(Axp2101::PowerKeyPressOffTime::k6S);
-    pmic->SetPowerKeyPressOnTime(Axp2101::PowerKeyPressOnTime::k1S);
+    pmic->SetPowerKeyPressOnTime(Axp2101::PowerKeyPressOnTime::k512Ms);
     pmic->SetIrqLevelTime(Axp2101::IrqLevelTime::k1S);
     pmic->SetButtonPowerOffEnabled(true);
 

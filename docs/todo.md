@@ -53,28 +53,51 @@ clears the PCF85063's alarm/timer interrupts, then calls `Axp2101::PowerOff()`
 (`components/axp2101/axp2101.cc:134-136`), which is a thin wrapper over the
 vendored XPowersLib driver's `Axp2101Driver::shutdown()`
 (`components/axp2101/xpowers_axp2101_driver.cc:181-184`) -- that just sets a
-soft-shutdown bit in the AXP2101's `COMMON_CONFIG` register. Nothing in
-Folloup's own code runs between that register write and the board going dark
-on battery, so if the power-back-on gesture is unreliable immediately after,
-it's most likely either a real AXP2101 characteristic (many PMICs enforce a
-minimum off-time or a debounce window after a soft-shutdown before they'll
-recognize a fresh PWRON edge -- worth checking the AXP2101 datasheet for a
-documented minimum off-time) or a side effect of `kShutdownSettleDelay`
-(the `vTaskDelay` immediately before `PowerOff()`) being too short or too long
-for the button hold that follows.
+soft-shutdown bit in the AXP2101's `COMMON_CONFIG` register.
 
-Open questions for whoever investigates:
-- Does the AXP2101 datasheet specify a minimum off-time or PWRON debounce
-  after a soft-shutdown command? If so, is Folloup's shutdown-confirm-to-dark
-  latency (and the settle delay above) already inside or outside that window?
+**Update (2026-09-11):** read the actual AXP2101 datasheet (X-Powers, via
+Waveshare's mirror) rather than guessing. It does *not* document any minimum
+off-time/cooldown before the chip will recognize a fresh PWRON press -- RTCLDO
+and the bias/comparator circuits stay live even "off," and power-on is a pure
+"hold PWRON longer than ONLEVEL" detection (REG27H[1:0], one of 128ms/512ms/
+1s/2s), independent of firmware. That rules out the "minimum off-time" theory
+as stated.
+
+Leading theory now: ONLEVEL was configured at 1s (`waveshare_board.cpp`,
+`SetPowerKeyPressOnTime`), the second-longest option, requiring one
+*continuous* low level for the whole hold. Mechanical contact bounce on the
+physical key partway through a hold would (per the datasheet's framing of the
+detector) reset that continuous-press timer, so a hold the user perceives as
+"long enough" can silently fall short. Shortened to 512ms
+(`Axp2101::PowerKeyPressOnTime::k512Ms`) to reduce how much uninterrupted
+contact time a single press needs -- unconfirmed without on-device testing,
+since bounce is a per-unit hardware characteristic this session can't
+reproduce. If it doesn't help, revert and fall back to the open questions
+below with fresh data (particularly the battery-vs-USB and
+quick-retry-vs-wait comparisons, which would help separate a bounce theory
+from anything downstream of the soft-shutdown register write).
+
+Also found and worth a separate fix regardless of this bug: the AXP2101's
+"Function Select when btn_pwroff_en=1" bit (REG22H bit 0 -- 0=Power-off,
+1=Restart) is never explicitly set by Folloup (`Axp2101::SetButtonPowerOffRestarts()`
+exists in `components/axp2101/axp2101.h:56` but has zero call sites), so it
+sits at its factory EFUSE default. `waveshare_board.cpp` enables "PWRON >
+OFFLEVEL (6s) as a power-off source" (`SetButtonPowerOffEnabled(true)`), and
+CLAUDE.md documents that 6s hold as "a hardware escape even if firmware is
+wedged" -- but if the EFUSE default for that function-select bit happens to
+be "Restart," the emergency 6s hold would reboot the board instead of cutting
+power, contradicting that guarantee. Should call
+`SetButtonPowerOffRestarts(false)` explicitly in `ConfigurePmicRails` so this
+doesn't depend on an unverified factory default.
+
+Open questions for whoever investigates further:
+- Does shortening ONLEVEL actually reduce the failure rate in practice?
 - Does this reproduce identically on battery vs. USB power (the VBUS-present
   case never actually powers off per the comment in `RequestShutdown`, so if
-  the bug also happens on USB it points away from an AXP2101 off-time theory
-  and toward something else, e.g. the PWR key's interrupt/debounce handling
-  on the way back up).
+  the bug also happens on USB it points away from a PWRON-hold-bounce theory
+  on power-on and toward something else).
 - Is there a difference between a short/quick retry vs. waiting a beat before
-  the next attempt -- i.e. does waiting longer make the first retry reliable,
-  which would support the "minimum off-time" theory directly?
+  the next attempt?
 
 Own branch/PR once root-caused.
 
