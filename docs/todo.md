@@ -3,6 +3,43 @@
 Open items only. Resolved/closed items (with full investigation and
 verification history) have moved to `docs/todo-archive.md`.
 
+## After a manual shutdown, holding PWR sometimes doesn't power the device back on
+
+Craig's report: after using manual shutdown (PWR held ~1s -> confirm on the
+shutdown screen), holding PWR again to turn the device back on doesn't always
+work on the first attempt -- it can take a few tries before it powers on.
+Doesn't seem to be a hardware issue (same physical button, same battery).
+
+`power_service::RequestShutdown()` (`components/power_service/power_service.cpp:450-475`)
+clears the PCF85063's alarm/timer interrupts, then calls `Axp2101::PowerOff()`
+(`components/axp2101/axp2101.cc:134-136`), which is a thin wrapper over the
+vendored XPowersLib driver's `Axp2101Driver::shutdown()`
+(`components/axp2101/xpowers_axp2101_driver.cc:181-184`) -- that just sets a
+soft-shutdown bit in the AXP2101's `COMMON_CONFIG` register. Nothing in
+Folloup's own code runs between that register write and the board going dark
+on battery, so if the power-back-on gesture is unreliable immediately after,
+it's most likely either a real AXP2101 characteristic (many PMICs enforce a
+minimum off-time or a debounce window after a soft-shutdown before they'll
+recognize a fresh PWRON edge -- worth checking the AXP2101 datasheet for a
+documented minimum off-time) or a side effect of `kShutdownSettleDelay`
+(the `vTaskDelay` immediately before `PowerOff()`) being too short or too long
+for the button hold that follows.
+
+Open questions for whoever investigates:
+- Does the AXP2101 datasheet specify a minimum off-time or PWRON debounce
+  after a soft-shutdown command? If so, is Folloup's shutdown-confirm-to-dark
+  latency (and the settle delay above) already inside or outside that window?
+- Does this reproduce identically on battery vs. USB power (the VBUS-present
+  case never actually powers off per the comment in `RequestShutdown`, so if
+  the bug also happens on USB it points away from an AXP2101 off-time theory
+  and toward something else, e.g. the PWR key's interrupt/debounce handling
+  on the way back up).
+- Is there a difference between a short/quick retry vs. waiting a beat before
+  the next attempt -- i.e. does waiting longer make the first retry reliable,
+  which would support the "minimum off-time" theory directly?
+
+Own branch/PR once root-caused.
+
 ## Redundant derived state: icon/checked fields duplicate their source bool
 
 `TimelineEntry` (in `notes_page_coordinator.h:16-21` and mirrored in
