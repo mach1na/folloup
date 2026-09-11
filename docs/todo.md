@@ -11,14 +11,27 @@ position in each file between sessions. Deliberately scoped down: **.txt
 only** (no EPUB -- zip + XHTML parsing is a much bigger lift than plain text
 and isn't worth it for a first cut), one flat folder (no subfolder browsing).
 
-**Depends on** "Full refreshes are too frequent / too visible" above: a page
-turn is a full-screen content swap, the same "large-area change" category
-that's already established as needing the slow `kFull` waveform on this
-panel (`kPartial`'s short waveform doesn't drive hard enough when most of the
-screen changes, and untuned `kFast` settles washed-out -- see that item's
-history). Page turns riding on `kFull` will work but feel like a slow flash
-per page; riding on unfixed `kFast` would just inherit the washed-out
-problem. Worth doing the waveform tuning first, or at least in parallel.
+**Update (2026-09-11) -- maybe not blocked after all.** Cloned Waveshare's
+own reference repo for this exact board
+(`github.com/waveshareteam/ESP32-S3-ePaper-3.97`, `ESP-IDF/08_ESP32-S3_e-Paper-3.97`)
+and it has a working on-device text reader already:
+`main/page_fiction/page_fiction.cc` + `main/file_browser/file_browser.cc` --
+bookmarks, byte-offset position tracked via `fseek`, a sidecar progress file
+(`fprintf(fp, "%zu\n%d\n", position, page)`), page counting. Good prior art
+for the shape above, and validates the byte-offset + sidecar approach
+independently.
+
+More importantly: **their page turns don't use fast mode at all.** They call
+`EPD_Display_Partial()` (the same plain differential refresh our codebase
+already uses for in-page updates, via `kPartial`) for turning pages, and only
+do a full-waveform refresh (`EPD_Display_Base`) as an occasional forced
+flush -- not on every turn. That's a vendor-tested precedent that plain
+black-text-on-white page turns might hold up fine on `kPartial`, unlike the
+Wi-Fi-page list-population case that ruled `kPartial` out for large-area
+changes elsewhere in this codebase. Worth just trying `kPartial` for page
+turns first, on real content, before assuming this needs the `kFast` tuning
+work at all -- see the update on that item below for why `kFast` turned out
+to be a less certain fix than it looked.
 
 Rough shape, following existing patterns rather than inventing new ones:
 
@@ -72,8 +85,9 @@ Open questions for whoever picks this up:
   clamp and re-paginate from there, but worth deciding explicitly rather than
   leaving it to whatever the clamp happens to do.
 
-Own branch/PR. Blocked on (or at least better after) the `kFast` waveform
-tuning above.
+Own branch/PR. Better after the `kFast` waveform tuning below, but per the
+update above, worth trying `kPartial` for page turns first rather than
+treating this as strictly blocked on that.
 
 ## Full refreshes are too frequent / too visible
 
@@ -98,20 +112,57 @@ the normal and OTP-fast waveform). `RefreshForMode()` in
 built for exactly this "full-screen change, not a ghost flush" case and then
 never wired up to a call site.
 
+**Update (2026-09-11) -- it was tried, and rejected for a real reason.** Git
+history answers the first open question below: commit `2e058a9` wired `kFast`
+into exactly these two "automatic refresh" paths, and commit `ae15b27`
+reverted it less than an hour later -- on this panel, the fast OTP waveform
+"flashes like a full refresh but finishes grey," it doesn't reach full
+contrast. So this isn't simply forgotten code; it's a known, real defect.
+
+**Also checked whether another firmware for this board already solved it.**
+Waveshare's own reference repo (`github.com/waveshareteam/ESP32-S3-ePaper-3.97`,
+`ESP-IDF/08_ESP32-S3_e-Paper-3.97/components/epaper_port/epaper_port.c`) has
+its own fast-mode init (`EPD_Init_Fast`), and its register sequence is
+essentially byte-for-byte identical to ours -- including the exact same
+forced temperature value, `0x1A = 0x6A`. So this was never a case of "we
+have the wrong value, they have the right one." Their code comment just says
+`//Fast(1.5s)`, treating it as expected behavior with no sign they scrutinized
+contrast quality. Their own on-device reader (see the `.txt` reader item
+below) doesn't even use fast mode for its page turns -- it uses plain
+`kPartial`-equivalent refreshes instead, which is a hint that `kFast` may
+just not be trustworthy on this panel for large-area content at all, at
+least not at this forced-temperature value.
+
+That reframes the fix: per the SSD1677 datasheet, the forced temperature
+byte doesn't act as a continuous speed dial -- the controller does a banded
+OTP lookup (about 8 temperature bands per the datasheet's example table,
+"last matching band wins"), and `0x6A` (106 "degC") almost certainly lands in
+the same topmost/fastest band as any other implausibly-hot value someone
+might try (a community SSD1677 driver uses `0x5A`/90 "degC" for its fast
+mode, which is likely in that same band and so likely no different in
+practice -- not verified, but not promising either). Getting a genuinely
+faster *and* full-contrast result probably means deliberately forcing a much
+cooler value to land in a different OTP band, trading away some of the speed
+win, found empirically since each panel's actual band boundaries are set at
+manufacture and aren't published.
+
 Open questions for whoever picks this up:
-- Is `kFast` actually fast/clean enough in practice for routine page
-  navigation, or was it left unused because it was tried and rejected (check
-  git history/PR discussion for `RefreshFastBase`/`kFastWaveformTemperature`
-  before assuming it's simply forgotten)?
+- Build the small on-device sweep harness discussed for this (cycle through
+  candidate `0x1A` values with a button press, fire a real large-area swap
+  on `kFast` each time, judge contrast) -- values should span a wide range
+  (e.g. down through ~30/20/10/0 "degC"), not just nudge near `0x6A`.
 - Should ordinary screen navigation switch to `kFast` while reserving `kFull`
   for the existing ghost-clear flush (`EpaperPanel::NeedsGhostingFlush()`,
   8-consecutive-partials trigger), wake/light-sleep recovery, and the
   boot/onboarding first paint (`docs/app-architecture.md`'s "Boot refresh
-  policy")?
+  policy")? Still the right target shape if a working value is found.
 - Since `kFast` clears ghosting less thoroughly, does alternating
   navigation-triggers-kFast with the existing ghost-clear-flush-triggers-kFull
   keep visible ghosting acceptable, or does it need its own counter/ceiling
   separate from the partial-refresh ghost counter?
+- Forcing a fixed temperature bypasses the panel's real temperature
+  compensation -- worth checking whether a value that looks right at room
+  temperature still holds up in a noticeably colder or warmer room.
 
 ## After a manual shutdown, holding PWR sometimes doesn't power the device back on
 
