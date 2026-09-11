@@ -8,6 +8,8 @@
 #include "epaper_ui/settings_storage_page.h"
 #include "epaper_ui/settings_todos_page.h"
 #include "epaper_ui/settings_topics_page.h"
+#include "epaper_ui/topics_browse_page.h"
+#include "epaper_ui/topic_entries_page.h"
 #include "epaper_ui/card_modal.h"
 #include "epaper_ui/select_modal.h"
 #include "epaper_ui/dashboard_page.h"
@@ -21,7 +23,6 @@
 #include "epaper_ui/summarize_page.h"
 #include "epaper_ui/todos_page.h"
 #include "epaper_ui/toast.h"
-#include "epaper_ui/vibe_check_page.h"
 #include "epaper_ui/wifi_page.h"
 #include "esp_err.h"
 
@@ -35,7 +36,8 @@ enum class ScreenId {
     kSettingsStorage,
     kSettingsTodos,
     kSettingsTopics,
-    kVibeCheck,
+    kTopicsBrowse,
+    kTopicEntries,
     kSummarize,
     kNotes,
     kTodos,
@@ -103,7 +105,8 @@ esp_err_t SetSettingsTopicsPageState(const epaper_ui::SettingsTopicsPageState& s
 esp_err_t SetWifiPageState(const epaper_ui::WifiPageState& state);
 esp_err_t SetTimePageState(const epaper_ui::TimePageState& state);
 esp_err_t SetDashboardPageState(const epaper_ui::DashboardPageState& state);
-esp_err_t SetVibeCheckPageState(const epaper_ui::VibeCheckPageState& state);
+esp_err_t SetTopicsBrowsePageState(const epaper_ui::TopicsBrowsePageState& state);
+esp_err_t SetTopicEntriesPageState(const epaper_ui::TopicEntriesPageState& state);
 esp_err_t SetSummarizePageState(const epaper_ui::SummarizePageState& state);
 esp_err_t SetNotesPageState(const epaper_ui::NotesPageState& state);
 esp_err_t SetTodosPageState(const epaper_ui::TodosPageState& state);

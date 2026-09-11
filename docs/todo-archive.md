@@ -1376,4 +1376,45 @@ narrow-body edge x-position used by slides 2/4, so on the wide-body slides
 the nubs rendered in the middle of the screen instead of at the edge; fixed
 by parameterizing the body width the nubs are drawn against.
 
+## ~~Vibe Check isn't useful -- redesign or remove~~ — removed, replaced by Topics browse
+
+Removed outright rather than redesigned, as part of shipping the Topics
+feature's browse screen (step 4 of the "Voice-created topics" work, see
+`docs/todo.md`). Craig confirmed the decision explicitly before implementation
+started: the new Topics screen (pick a topic, see a day-grouped timeline of
+every entry carrying it) solves the same underlying "I can't find my ideas"
+problem better, and reclaims Vibe Check's Home dashboard slot (3rd item)
+rather than adding a 6th menu item.
+
+Deleted outright, cleanly (no other screen depended on them, confirmed by a
+full-repo grep before removal): `main/vibe_check_page_{coordinator,runtime,
+interactions}.{h,cpp}`, `components/epaper_ui/vibe_check_page.{h,cpp}`,
+`components/epaper_ui/vibe_card.{h,cpp}` (~1,760 lines). Every reference to
+`ScreenId::kVibeCheck`/`SurfaceKey::kVibeCheckPage`/`NavigationScope::
+kVibeCheck` and friends was removed in lockstep across `display_service`,
+`ui_refresh_runtime`, `page_navigation`, `page_input_runtime.cpp`, and
+`app_shell.cpp` (each has a 4-switch or similar per-screen wiring pattern
+documented in `docs/app-architecture.md`). `design::vibe_card`'s design
+tokens were deliberately left alone -- despite the name, they're a shared
+token namespace also used by `button.cpp`, `network_list.cpp`, and
+`sticky_note.h`, unrelated to the deleted page.
+
+The Transcribe-retry action for audio-only ideas didn't need a new home:
+Details already has its own Transcribe button covering the same case, exactly
+as anticipated when this item was first logged.
+
+Replaced by two new screens (`ScreenId::kTopicsBrowse` + `kTopicEntries`),
+built by closely mirroring two existing patterns rather than inventing new
+ones: the flat topic list reuses Settings > Topics' list shape (minus the
+manage actions), and the filtered timeline reuses `TimelineGroupFocus<T>` --
+the same shared two-level (date-chip groups -> item rows) focus template
+Notes/Todos/Follow-up already compose -- filtering by `RecordingMetadata::
+topic_ids` membership instead of by tag. `DashboardMenuItem::kVibeCheck` was
+renamed to `kTopics` in place (same numeric slot) rather than removed and
+re-added, so no other menu index shifted.
+
+Verified on-device: clean `--strict-warnings` build with zero warnings on
+the first attempt despite the size of the change (two new screens' full
+10-step-checklist wiring plus a complete removal across ~20 files).
+
 Verified on-device: Craig confirmed "much better."

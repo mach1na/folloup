@@ -27,7 +27,7 @@ struct PendingSurface {
     bool pending = false;
 };
 
-constexpr size_t kSurfaceCount = 18;
+constexpr size_t kSurfaceCount = 19;
 
 std::mutex s_mutex;
 std::array<PendingSurface, kSurfaceCount> s_pending = {};
@@ -53,26 +53,28 @@ size_t SurfaceIndex(SurfaceKey key)
             return 6;
         case SurfaceKey::kDashboardPage:
             return 7;
-        case SurfaceKey::kVibeCheckPage:
+        case SurfaceKey::kTopicsBrowsePage:
             return 8;
-        case SurfaceKey::kSummarizePage:
+        case SurfaceKey::kTopicEntriesPage:
             return 9;
-        case SurfaceKey::kNotesPage:
+        case SurfaceKey::kSummarizePage:
             return 10;
-        case SurfaceKey::kTodosPage:
+        case SurfaceKey::kNotesPage:
             return 11;
-        case SurfaceKey::kFollowUpPage:
+        case SurfaceKey::kTodosPage:
             return 12;
-        case SurfaceKey::kDetailsPage:
+        case SurfaceKey::kFollowUpPage:
             return 13;
-        case SurfaceKey::kOnboardingPage:
+        case SurfaceKey::kDetailsPage:
             return 14;
-        case SurfaceKey::kSettingsStoragePage:
+        case SurfaceKey::kOnboardingPage:
             return 15;
-        case SurfaceKey::kSettingsTodosPage:
+        case SurfaceKey::kSettingsStoragePage:
             return 16;
-        case SurfaceKey::kSettingsTopicsPage:
+        case SurfaceKey::kSettingsTodosPage:
             return 17;
+        case SurfaceKey::kSettingsTopicsPage:
+            return 18;
         default:
             return 0;
     }
@@ -97,8 +99,10 @@ const char* SurfaceName(SurfaceKey key)
             return "time_page";
         case SurfaceKey::kDashboardPage:
             return "dashboard_page";
-        case SurfaceKey::kVibeCheckPage:
-            return "vibe_check_page";
+        case SurfaceKey::kTopicsBrowsePage:
+            return "topics_browse_page";
+        case SurfaceKey::kTopicEntriesPage:
+            return "topic_entries_page";
         case SurfaceKey::kSummarizePage:
             return "summarize_page";
         case SurfaceKey::kNotesPage:
@@ -142,24 +146,26 @@ const char* SurfaceNameForIndex(size_t index)
         case 7:
             return "dashboard_page";
         case 8:
-            return "vibe_check_page";
+            return "topics_browse_page";
         case 9:
-            return "summarize_page";
+            return "topic_entries_page";
         case 10:
-            return "notes_page";
+            return "summarize_page";
         case 11:
-            return "todos_page";
+            return "notes_page";
         case 12:
-            return "follow_up_page";
+            return "todos_page";
         case 13:
-            return "details_page";
+            return "follow_up_page";
         case 14:
-            return "onboarding_page";
+            return "details_page";
         case 15:
-            return "settings_storage_page";
+            return "onboarding_page";
         case 16:
-            return "settings_todos_page";
+            return "settings_storage_page";
         case 17:
+            return "settings_todos_page";
+        case 18:
             return "settings_topics_page";
         default:
             return "unknown";

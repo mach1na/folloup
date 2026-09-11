@@ -217,13 +217,35 @@ NavigationModel BuildDashboardPageNavigationModel()
     return model;
 }
 
-NavigationModel BuildVibeCheckPageNavigationModel()
+NavigationModel BuildTopicsBrowsePageNavigationModel(int topic_count)
 {
     NavigationModel model = {};
-    model.scope = NavigationScope::kVibeCheck;
+    model.scope = NavigationScope::kTopicsBrowse;
 
-    AddItem(model, NavigationItemSection::kVibeCheckPageControls,
-            NavigationItemRole::kVibeCheckPageCard, 0);
+    const int count = topic_count > 0 ? topic_count : 0;
+    for (int index = 0; index < count; ++index) {
+        AddItem(model, NavigationItemSection::kTopicsBrowsePageControls,
+                NavigationItemRole::kTopicsBrowseTopicRow, index);
+    }
+    AddFooterItems(model, /*is_home_screen=*/false);
+    return model;
+}
+
+NavigationModel BuildTopicEntriesPageNavigationModel(int timeline_group_count)
+{
+    NavigationModel model = {};
+    model.scope = NavigationScope::kTopicEntries;
+
+    const int group_count = timeline_group_count > 0 ? timeline_group_count : 0;
+    for (int index = 0; index < group_count; ++index) {
+        AddItem(model, NavigationItemSection::kTopicEntriesPageTimelineGroups,
+                NavigationItemRole::kTopicEntriesTimelineGroup, index);
+    }
+    // Reached only from the Topics browse screen (picking a topic), so Back always returns there
+    // -- same reasoning as Details' page-owned Back button, no source-tracking enum needed for a
+    // single possible source.
+    AddItem(model, NavigationItemSection::kTopicEntriesPageControls,
+            NavigationItemRole::kTopicEntriesBackButton, 0);
     AddFooterItems(model, /*is_home_screen=*/false);
     return model;
 }

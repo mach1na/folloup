@@ -55,8 +55,8 @@ onboarding, and a set of feature pages plus overlays) built on:
   primitives (status bar, global footer, lock screen, card modal, select modal,
   toast, keyboard, carousel, scroll container, timeline list, sticky note, and
   the many list/menu/input widgets) plus the full page renderers (dashboard,
-  onboarding, vibe check, summarize, notes, todos, follow-up, details, settings,
-  wifi, time).
+  onboarding, topics browse, topic entries, summarize, notes, todos, follow-up,
+  details, settings, wifi, time).
 - A ported `sd_card` component for SDMMC/FATFS MicroSD access.
 - A `storage_service` component that owns app-facing MicroSD mount, format, and
   debug status policy.
@@ -146,7 +146,8 @@ main/
   # Per-page runtime families. Each feature page has a {runtime, coordinator,
   # interactions} trio (settings/wifi/time predate the coordinator split and
   # keep their state in the runtime):
-  #   dashboard_page_*  onboarding_page_*  vibe_check_page_*  summarize_page_*
+  #   dashboard_page_*  onboarding_page_*  topics_browse_page_*
+  #   topic_entries_page_*  summarize_page_*
   #   notes_page_*  todos_page_*  follow_up_page_*  details_page_*
   #   settings_page_{runtime,coordinator,interactions}  wifi_page_*  time_page_*
   settings_page_interactions.h
@@ -307,7 +308,13 @@ Screens (`ScreenId`):
 - `kHome` — the dashboard: a focusable menu that opens the feature pages.
 - `kOnboarding` — a first-boot carousel (Close / Prev / Next). Shown once, gated
   by NVS `app_state`/`onboarded`; re-launchable from Settings → "Manual".
-- `kVibeCheck`, `kSummarize` — AI idea / summary cards.
+- `kTopicsBrowse` — a flat, read-only list of `topic_service` topics.
+- `kTopicEntries` — one topic's filtered timeline, reached by picking a topic
+  on `kTopicsBrowse`; same two-level shape as `kNotes`/`kTodos`/`kFollowUp`
+  below, filtered by `RecordingMetadata::topic_ids` membership instead of by
+  tag, plus a page-owned Back button (single source, same pattern as
+  `kDetails`).
+- `kSummarize` — AI summary cards.
 - `kNotes`, `kTodos`, `kFollowUp` — recording timelines (two-level: date-group
   chips → an entered, scrollable item list) built on the `timeline_list`
   primitive and `timeline_format` (the "Today"/absolute-date labels).
@@ -335,8 +342,9 @@ All page, status-bar, footer, and overlay repaints flow through
 *apply callback* (which pushes fresh state into `display_service`) plus a
 refresh request, keyed by a `SurfaceKey` (`kOverlay`, `kLockScreen`,
 `kStatusBar`, `kFooter`, and one key per page: `kSettingsPage`, `kWifiPage`,
-`kTimePage`, `kDashboardPage`, `kVibeCheckPage`, `kSummarizePage`, `kNotesPage`,
-`kTodosPage`, `kFollowUpPage`, `kDetailsPage`, `kOnboardingPage`). The worker
+`kTimePage`, `kDashboardPage`, `kTopicsBrowsePage`, `kTopicEntriesPage`,
+`kSummarizePage`, `kNotesPage`, `kTodosPage`, `kFollowUpPage`, `kDetailsPage`,
+`kOnboardingPage`). The worker
 coalesces pending work per surface and issues at most one screen (underlay)
 refresh and one overlay refresh per drain.
 
@@ -396,9 +404,9 @@ The current app-runtime helpers under `main/` are:
 - `overlay_runtime`: own retained overlay state (card modal, select modal,
   keyboard, toast, and the full-page sticky-note overlay), hit testing, and
   overlay presentation hooks
-- one runtime family per feature page — `{dashboard, onboarding, vibe_check,
-  summarize, notes, todos, follow_up, details}_page_{runtime, coordinator,
-  interactions}`, plus `settings/wifi/time` (runtime + interactions) — composing
+- one runtime family per feature page — `{dashboard, onboarding, topics_browse,
+  topic_entries, summarize, notes, todos, follow_up, details}_page_{runtime,
+  coordinator, interactions}`, plus `settings/wifi/time` (runtime + interactions) — composing
   page state and translating focus into neutral page outcomes + follow-on intents
 - `timeline_format`: shared date/time formatters for the Notes/Todos/Follow-up
   timelines and the sticky-note overlay (the "Today"-vs-absolute-date logic)
@@ -501,8 +509,8 @@ Current app-level button interactions are:
   equivalent.
 - Pressing and **holding** `DOWN` (a long-press) is the app-wide "exit an entered
   control" gesture, handled per screen: it backs out of a control the user has
-  stepped into -- e.g. the Vibe Check card, an entered scroll container /
-  timeline item list on the Summarize / Notes / Todos / Follow-up pages, the WiFi
+  stepped into -- e.g. an entered scroll container / timeline item list on the
+  Summarize / Notes / Todos / Follow-up / Topic Entries pages, the WiFi
   network list, or the sticky-note transcript scroll. It is a no-op at the app
   level. (This replaced the former `DOWN` double-click exit.)
 - A short press of the `PWR` key toggles the lock screen; a ~1s hold opens the
@@ -546,7 +554,7 @@ Current focus-surface inventory is:
 
 - `Home`: the dashboard page (focusable menu) plus the footer
 - `Onboarding`: the carousel page (Close / Prev / Next controls); no footer
-- `VibeCheck`, `Summarize`: shared page-focus path
+- `TopicsBrowse`, `TopicEntries`, `Summarize`: shared page-focus path
 - `Notes`, `Todos`, `FollowUp`: shared page-focus path with a two-level timeline
   (date-group chips → entered item list)
 - `Details`: shared page-focus path with an entered transcript scroll container
@@ -601,7 +609,7 @@ screens is:
   release
 
 This contract is implemented by every page-owned screen: `Dashboard` (home),
-`Onboarding`, `VibeCheck`, `Summarize`, `Notes`, `Todos`, `FollowUp`, `Details`,
+`Onboarding`, `TopicsBrowse`, `TopicEntries`, `Summarize`, `Notes`, `Todos`, `FollowUp`, `Details`,
 `Settings`, `WiFi`, and `Time`. Dispatch for the active screen is centralized in
 `main/page_input_runtime.cpp` (`resolve/focus/activate` and button handling per
 `ScreenId`).
@@ -1319,8 +1327,8 @@ Current scope:
 Current UI state:
 
 - `display_service` owns the `ScreenId` screen model: the dashboard home,
-  onboarding, the feature pages (vibe check, summarize, notes, todos, follow-up,
-  details, settings, wifi, time), and a real lock screen
+  onboarding, the feature pages (topics browse, topic entries, summarize, notes,
+  todos, follow-up, details, settings, wifi, time), and a real lock screen
 - the status bar is now rendered through `epaper_ui`
 - the global footer is rendered through `epaper_ui` and fed by
   `main/footer_runtime.cpp`
@@ -1358,8 +1366,8 @@ The current keyed surfaces are:
 - lock screen
 - status bar
 - footer
-- one per page: dashboard, onboarding, vibe check, summarize, notes, todos,
-  follow-up, details, settings, WiFi, time
+- one per page: dashboard, onboarding, topics browse, topic entries, summarize,
+  notes, todos, follow-up, details, settings, WiFi, time
 
 Current refresh categories are:
 

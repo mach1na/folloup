@@ -20,7 +20,7 @@ inline constexpr int kDashboardMenuItemCount = 5;
 enum class DashboardMenuItem : int {
     kFollowUp = 0,
     kSummarize,
-    kVibeCheck,
+    kTopics,
     kNotes,
     kTodos,
 };

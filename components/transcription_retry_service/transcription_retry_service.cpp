@@ -22,7 +22,7 @@ constexpr const char* kTag = "TranscribeRetry";
 // (kTranscribeTimeoutMs); this leaves margin for task scheduling before giving up on one item.
 constexpr int64_t kItemTimeoutUs = 40 * 1000 * 1000;
 constexpr int64_t kPollIntervalMs = 250;
-// Mirrors vibe_check_page_runtime's TranscribeWorker: loading a clip back off SD needs a
+// Mirrors details_page_runtime's TranscribeWorker: loading a clip back off SD needs a
 // generously sized stack.
 constexpr uint32_t kRetryTaskStackWords = 8192;
 constexpr const char* kRetryTaskName = "transcribe_retry";

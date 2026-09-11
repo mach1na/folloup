@@ -134,97 +134,36 @@ Open questions for whoever designs this:
 
 Own branch/PR.
 
-## Vibe Check isn't useful -- redesign or remove, possibly reclaiming its screen real estate for topic filtering
+## Topics: retarget Summarize at topic-scoped summaries (last step)
 
-Craig doesn't find the Vibe Check screen (Home's 3rd dashboard menu item,
-`ScreenId::kVibeCheck`) useful as-is and wants to either redesign it into
-something worth keeping or remove it outright. Today it's a Tinder-style
-shuffle through Idea-tagged recordings one at a time (Refresh/Close/Check
-actions, plus Transcribe for audio-only ideas) -- pure `recording_archive_service`
-CRUD, no Gemini/`summary_service` involvement.
+Most of the Topics feature has shipped: `topic_service` owns the topic
+registry (SD-JSON, id-indexed so rename/delete never rewrites recording
+sidecars, #43); Settings > Topics manages the list (create/rename/delete,
+#44); a "Topic" option in the recording tag menu creates a topic by voice
+straight from the normal record-and-tag flow (#45); the Details page's
+"Edit topics" multi-select assigns/unassigns topics on any entry (#46); and
+a Topics browse screen (Home's 3rd dashboard item, replacing the removed
+Vibe Check) lists topics and drills into a day-grouped timeline of every
+entry carrying one.
 
-Worth deciding alongside the "Voice-created topics" item below: if topics
-ship, Home's fixed 5-item dashboard menu (Follow up / Summarize / Vibe check
-/ Notes / Todos) is a natural place to make room for a topic-filtered view,
-and Vibe Check's menu slot/screen real estate is the obvious candidate to
-reclaim rather than adding a 6th item.
-
-Open questions for whoever designs this:
-- Redesign vs. remove: is there a version of "surface an idea you might have
-  forgotten about" that's actually useful (e.g. resurfacing old, untagged,
-  or long-idle ideas), or does the topics feature already solve the
-  underlying problem ("I can't find my ideas") in a better way?
-- If removed: `main/vibe_check_page_{coordinator,runtime,interactions}.{h,cpp}`
-  and `components/epaper_ui/vibe_check_page.{h,cpp}`/`vibe_card.{h,cpp}`
-  (~1,760 lines total) are fairly self-contained and could come out cleanly
-  -- no other screen depends on them. The Transcribe-retry action for
-  audio-only ideas is the one behavior that'd need a new home (Details page
-  already has its own Transcribe button, so may already be redundant).
-- If the screen slot is reclaimed for topic filtering: does that live at
-  `ScreenId::kVibeCheck`'s old dashboard position, or does the whole 5-item
-  menu get rethought once topics exist (Notes/Todos/Follow-up could also
-  gain a topic-filter entry point instead of/alongside a dedicated menu
-  item)?
-
-Own branch/PR.
-
-## Voice-created topics for categorizing entries, independent of Note/Idea/Todo
-
-Craig wants a second, orthogonal categorization axis on top of the existing
-Note/Idea/Todo type tag (`RecordingMetadata::tag`, set at recording time via
-the tag-selection step in `recording_session_service`): user-defined topics
-(e.g. a project name) that can be attached to any entry regardless of its
-type, so a Note and a Todo could both carry the same "Project X" topic. New
-topics should be creatable by voice, via a feature living in Settings (the
-now-hub-shaped `ScreenId::kSettings` — see `docs/todo-archive.md`'s
-"Consolidate Settings, WiFi, and Time" entry — would likely gain a fifth
-heading for this, alongside Network/Time/Storage/Todos). Named "topics"
-rather than "labels" specifically to keep it delimited from the existing
-Note/Idea/Todo tag terminology.
-
-Also fold in Summarize's future here rather than planning it separately:
-Craig doesn't find the current Summarize screen useful either, but its
-underlying engine (`summary_service` — token-budgeted, chunked Gemini
-summarization with SD-cached results, `docs/gemini-service.md`) is worth
-keeping. Today it only summarizes two fixed, static buckets (everything
-tagged Note, everything tagged Task) — a blunt cut. Once topics exist, the
-more useful version is almost certainly "summarize Topic X" instead: pass
-`summary_service` a topic-filtered entry set rather than a tag-filtered one,
-and let the Summarize page (or a summarize action reachable from a topic
-view) target a specific topic rather than a fixed Notes/Todos split.
+The one piece not yet done: Craig doesn't find the current Summarize screen
+useful either, but its underlying engine (`summary_service` — token-budgeted,
+chunked Gemini summarization with SD-cached results, `docs/gemini-service.md`)
+is worth keeping. Today it only summarizes two fixed, static buckets
+(everything tagged Note, everything tagged Task). The more useful version is
+almost certainly "summarize Topic X" instead: pass `summary_service` a
+topic-filtered entry set (the same filter `topic_entries_page_coordinator.cpp`'s
+`BuildGroups` already implements — match on `RecordingMetadata::topic_ids`)
+rather than a tag-filtered one, reachable as an action from the Topics browse
+screen's filtered-timeline view.
 
 Open questions for whoever designs this:
-- Storage: `RecordingMetadata` already persists a JSON sidecar per recording
-  on SD (`recording_archive_service`) — topics-per-entry could be a new
-  array field there, but the topic *registry* itself (the set of topic
-  names that exist, so they can be voice-matched/picked rather than
-  free-typed) needs its own store, probably SD-based like the recordings
-  themselves rather than NVS (NVS today only holds small config, e.g. the
-  `wifi`/`timezone` namespaces).
-- Voice creation flow: is this a dedicated "add a topic" voice capture
-  (record a short clip, Gemini extracts just a topic name) separate from
-  the normal press-and-hold recording flow, or a step folded into an
-  existing flow? Needs a phase-machine home if it's the former — compare
-  `recording_session_service`'s existing `kIdle -> kArmed -> ... ->
-  kComplete` phase machine for the main recording flow.
-- Assignment: one topic per entry or multiple? Assigned at recording time
-  (extending the existing tag-selection step) or after the fact from the
-  Details page?
-- Browsing/filtering: Notes/Todos/Follow-up today are single-axis timelines
-  grouped by day (`notes_page_coordinator`/`todos_page_coordinator`/
-  `follow_up_page_coordinator`) — filtering or grouping by topic would need
-  a second navigation dimension (e.g. a topic picker/segment control) on
-  top of those pages' existing day-grouping and (for Todos) Current/Archived
-  segment control.
-- Topic lifecycle: renaming or deleting a topic needs to touch every entry
-  that references it (rewriting sidecars on SD), which is a bigger
-  operation than anything `recording_archive_service` does today (its
-  existing mutators, e.g. `MarkRecordingCompleted`/`SaveTranscriptionFailure`,
-  all touch a single recording's sidecar, not a cross-cutting rewrite).
-- Summarize integration: does topic-scoped summarization replace the
-  existing Notes/Todos summary buckets outright, or sit alongside them?
-  `summary_service`'s existing per-kind cache (Notes/Todos) would need a
-  per-topic cache shape instead of/in addition to that.
+- Does topic-scoped summarization replace the existing Notes/Todos summary
+  buckets outright, or sit alongside them? If Summarize the standalone
+  dashboard item goes away (Craig's original framing), `DashboardMenuItem`
+  would need another look at its now-4-useful-of-5 slots.
+- `summary_service`'s existing per-kind SD cache (Notes/Todos) would need a
+  per-topic cache key shape instead of/in addition to that.
 
 Own branch/PR.
 

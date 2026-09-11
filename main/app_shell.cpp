@@ -58,7 +58,8 @@
 #include "recording_archive_service.h"
 #include "timeline_format.h"
 #include "time_page_runtime.h"
-#include "vibe_check_page_runtime.h"
+#include "topic_entries_page_runtime.h"
+#include "topics_browse_page_runtime.h"
 #include "wifi_page_runtime.h"
 
 namespace app_shell {
@@ -354,24 +355,77 @@ void ShowSettingsSubPageIfRequested()
     }
 }
 
-esp_err_t ShowVibeCheckScreen(display_service::RefreshMode refresh_mode)
+esp_err_t ShowTopicsBrowseScreen(display_service::RefreshMode refresh_mode)
 {
-    SyncStatusBarState("show_vibe_check_screen");
-    page_input_runtime::ResetFocusForScreen(display_service::ScreenId::kVibeCheck);
-    footer_runtime::SetLayoutState(FooterLayoutForScreen(display_service::ScreenId::kVibeCheck));
-    footer_runtime::SetProjectionState(
-        page_input_runtime::BuildFooterProjectionForScreen(display_service::ScreenId::kVibeCheck));
+    SyncStatusBarState("show_topics_browse_screen");
+    page_input_runtime::ResetFocusForScreen(display_service::ScreenId::kTopicsBrowse);
+    footer_runtime::SetLayoutState(
+        FooterLayoutForScreen(display_service::ScreenId::kTopicsBrowse));
+    footer_runtime::SetProjectionState(page_input_runtime::BuildFooterProjectionForScreen(
+        display_service::ScreenId::kTopicsBrowse));
     const esp_err_t footer_err = footer_runtime::UpdateDisplayState();
     if (footer_err != ESP_OK && footer_err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(kTag, "Footer sync before vibe check screen failed: %s",
+        ESP_LOGW(kTag, "Footer sync before topics browse screen failed: %s",
                  esp_err_to_name(footer_err));
     }
-    const esp_err_t vibe_err = vibe_check_page_runtime::SyncFromService(false);
-    if (vibe_err != ESP_OK && vibe_err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(kTag, "Vibe check page sync before show failed: %s", esp_err_to_name(vibe_err));
+    const esp_err_t topics_err = topics_browse_page_runtime::UpdateDisplayState();
+    if (topics_err != ESP_OK && topics_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Topics browse page sync before show failed: %s",
+                 esp_err_to_name(topics_err));
     }
-    return display_service::SetCurrentScreen(display_service::ScreenId::kVibeCheck, refresh_mode,
-                                             "show_vibe_check_screen");
+    return display_service::SetCurrentScreen(display_service::ScreenId::kTopicsBrowse,
+                                             refresh_mode, "show_topics_browse_screen");
+}
+
+esp_err_t ShowTopicEntriesScreen(display_service::RefreshMode refresh_mode)
+{
+    SyncStatusBarState("show_topic_entries_screen");
+    // See ShowNotesScreen's comment: sync before resetting focus / the footer projection, so the
+    // footer doesn't render a stale selection SyncFromArchive is about to move away from.
+    const esp_err_t sync_err = topic_entries_page_runtime::SyncFromArchive(false);
+    if (sync_err != ESP_OK && sync_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Topic entries page sync before show failed: %s",
+                 esp_err_to_name(sync_err));
+    }
+    page_input_runtime::ResetFocusForScreen(display_service::ScreenId::kTopicEntries);
+    footer_runtime::SetLayoutState(
+        FooterLayoutForScreen(display_service::ScreenId::kTopicEntries));
+    footer_runtime::SetProjectionState(page_input_runtime::BuildFooterProjectionForScreen(
+        display_service::ScreenId::kTopicEntries));
+    const esp_err_t footer_err = footer_runtime::UpdateDisplayState();
+    if (footer_err != ESP_OK && footer_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Footer sync before topic entries screen failed: %s",
+                 esp_err_to_name(footer_err));
+    }
+    return display_service::SetCurrentScreen(display_service::ScreenId::kTopicEntries,
+                                             refresh_mode, "show_topic_entries_screen");
+}
+
+// Open the filtered timeline for a topic selected on the Topics browse screen.
+void ShowTopicEntriesScreenIfRequested()
+{
+    const topics_browse_page_runtime::PendingTopicEntries pending =
+        topics_browse_page_runtime::ConsumePendingShowEntries();
+    if (!pending.valid) {
+        return;
+    }
+    topic_entries_page_runtime::QueueShow(pending.topic_id, pending.topic_name);
+    const esp_err_t err = ShowTopicEntriesScreen(display_service::RefreshMode::kFull);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Show topic entries screen failed: %s", esp_err_to_name(err));
+    }
+}
+
+// Return from the Topic entries screen to the Topics browse screen.
+void HandleTopicEntriesBackIfRequested()
+{
+    if (!topic_entries_page_runtime::ConsumePendingBack()) {
+        return;
+    }
+    const esp_err_t err = ShowTopicsBrowseScreen(display_service::RefreshMode::kFull);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Topic entries back navigation failed: %s", esp_err_to_name(err));
+    }
 }
 
 void HandleSummaryEvent(const summary_service::Event& event, void* context);
@@ -561,6 +615,10 @@ void ShowDetailsScreenIfRequested()
         source = DetailsPageSource::kFollowUp;
     }
     if (recording_id.empty()) {
+        recording_id = topic_entries_page_runtime::ConsumePendingViewDetails();
+        source = DetailsPageSource::kTopicEntries;
+    }
+    if (recording_id.empty()) {
         return;
     }
     const esp_err_t err =
@@ -586,6 +644,9 @@ void HandleDetailsBackIfRequested()
             break;
         case DetailsPageSource::kFollowUp:
             err = ShowFollowUpScreen(display_service::RefreshMode::kFull);
+            break;
+        case DetailsPageSource::kTopicEntries:
+            err = ShowTopicEntriesScreen(display_service::RefreshMode::kFull);
             break;
         default:
             err = ShowHomeScreen(display_service::RefreshMode::kFull);
@@ -761,10 +822,10 @@ app_interaction::InputResult HandleFooterActivate(footer_runtime::FooterFocusIte
 // page does not exist yet, letting dashboard_page_runtime fall back to its "coming soon" toast.
 bool HandleDashboardMenuItem(int menu_index, void*)
 {
-    if (menu_index == static_cast<int>(epaper_ui::DashboardMenuItem::kVibeCheck)) {
-        const esp_err_t err = ShowVibeCheckScreen(display_service::RefreshMode::kFull);
+    if (menu_index == static_cast<int>(epaper_ui::DashboardMenuItem::kTopics)) {
+        const esp_err_t err = ShowTopicsBrowseScreen(display_service::RefreshMode::kFull);
         if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-            ESP_LOGW(kTag, "Show vibe check screen failed: %s", esp_err_to_name(err));
+            ESP_LOGW(kTag, "Show topics browse screen failed: %s", esp_err_to_name(err));
         }
         return true;
     }
@@ -1464,10 +1525,13 @@ void HandleDispatchedButtonEvent(const button_service::ButtonEventInfo& event)
                 HandleFooterActivate(page_button_result.footer_item, nullptr);
             PlayInteractionFeedback(footer_result);
         }
+        ShowDetailsScreenIfRequested();
         HandleDetailsBackIfRequested();
         HandleOnboardingDismissIfRequested();
         ShowOnboardingFromSettingsIfRequested();
         ShowSettingsSubPageIfRequested();
+        ShowTopicEntriesScreenIfRequested();
+        HandleTopicEntriesBackIfRequested();
         FlushOverlayFeedback();
         return;
     }
@@ -1731,8 +1795,10 @@ void HandleRecordingArchiveEvent(const recording_archive_service::Event& event, 
         case display_service::ScreenId::kFollowUp:
             page_err = follow_up_page_runtime::SyncFromArchive(true);
             break;
-        case display_service::ScreenId::kVibeCheck:
-            page_err = vibe_check_page_runtime::SyncFromService(true);
+        case display_service::ScreenId::kTopicEntries:
+            // The topic list itself (Topics browse) doesn't need this -- only entries change,
+            // never the topic set, on an archive-changed event.
+            page_err = topic_entries_page_runtime::SyncFromArchive(true);
             break;
         case display_service::ScreenId::kSummarize:
             page_err = summarize_page_runtime::SyncFromService(true);
