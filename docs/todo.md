@@ -3,6 +3,78 @@
 Open items only. Resolved/closed items (with full investigation and
 verification history) have moved to `docs/todo-archive.md`.
 
+## Add a simple .txt reader
+
+Craig wants a small text reader (2026-09-11): browse a single fixed folder on
+the SD card, open a `.txt` file, and have the device remember the last
+position in each file between sessions. Deliberately scoped down: **.txt
+only** (no EPUB -- zip + XHTML parsing is a much bigger lift than plain text
+and isn't worth it for a first cut), one flat folder (no subfolder browsing).
+
+**Depends on** "Full refreshes are too frequent / too visible" above: a page
+turn is a full-screen content swap, the same "large-area change" category
+that's already established as needing the slow `kFull` waveform on this
+panel (`kPartial`'s short waveform doesn't drive hard enough when most of the
+screen changes, and untuned `kFast` settles washed-out -- see that item's
+history). Page turns riding on `kFull` will work but feel like a slow flash
+per page; riding on unfixed `kFast` would just inherit the washed-out
+problem. Worth doing the waveform tuning first, or at least in parallel.
+
+Rough shape, following existing patterns rather than inventing new ones:
+
+- **Reading files off SD**: no new plumbing needed -- `storage_service`
+  already composes `board` + `sd_card` this way, and `playback_service`
+  already streams file content off SD in chunks (for clip playback) rather
+  than loading a whole file into RAM. A reader service should read the fixed
+  folder the same way, and stream `.txt` content in chunks rather than
+  loading an entire book into the heap -- internal RAM is the tighter budget
+  on this board (see recent headroom check: DIRAM ~56% used), so keep any
+  buffering PSRAM-backed like the e-paper framebuffers already are, and keep
+  chunks small regardless.
+- **Fixed folder path**: probably a `CONFIG_FOLLOWUP_*` Kconfig default
+  (`main/Kconfig.projbuild`), matching how the other build-time paths/settings
+  are exposed under "Folloup Settings".
+- **Remembering position**: store a small per-file sidecar on the SD card
+  itself (e.g. `<filename>.pos` next to the book, holding a plain byte
+  offset) rather than NVS -- matches the project's existing "everything lives
+  on the SD card" philosophy (README/CLAUDE.md), and NVS's key/value model
+  doesn't fit open-ended per-filename records well.
+- **Pagination**: layout is fixed (one font/size, one portrait viewport), so
+  pages can be computed live rather than pre-indexed -- greedily wrap text
+  from the stored byte offset using the existing font/text-wrap utilities in
+  `epaper_ui` (already used for menu items and timeline text) until the page
+  area fills. For backward paging, keep an in-memory stack of page-start
+  offsets for the current reading session (push on forward, pop on back) --
+  avoids needing a persisted page index, at the cost of only being able to
+  page back within the current session (paging back before the book's last
+  saved position, after reopening it, would need re-deriving from the start
+  or accepting forward-only after reopen -- open question below).
+- **Screens**: a new `ScreenId` and the usual page-owned
+  `{runtime, coordinator, interactions}` trio in `main/`, plus a page
+  renderer in `epaper_ui` (depends only on `design_tokens` +
+  `project_assets`, never app services, per the existing rule). Likely two
+  views: a file-list (reuse the existing list/menu container widgets) and
+  the actual reading view.
+- **Input**: `UP`/`DOWN` tilt for prev/next page in the reading view (fits
+  the existing roving-focus convention elsewhere), long-press `DOWN` to exit
+  back to the file list (the app-wide "exit entered control" gesture),
+  `ACTION`/`FN` to open a file from the list.
+
+Open questions for whoever picks this up:
+- Where does this hang off the app? A new Home screen menu item (Home's menu
+  is already at 4 items after the recent reorder) vs. tucked under Settings
+  as a lower-priority entry -- a UX call, not an architectural one.
+- Backward pagination before the saved position on a freshly reopened book:
+  worth solving properly, or is forward-only-until-you've-repassed-it an
+  acceptable v1 limitation?
+- What happens to the `.pos` sidecar if the book file is edited/replaced
+  externally (byte offset now points mid-word or past EOF)? Probably just
+  clamp and re-paginate from there, but worth deciding explicitly rather than
+  leaving it to whatever the clamp happens to do.
+
+Own branch/PR. Blocked on (or at least better after) the `kFast` waveform
+tuning above.
+
 ## Full refreshes are too frequent / too visible
 
 Craig's report (2026-09-11): full refreshes happen "rather egregiously" and
