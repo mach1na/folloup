@@ -25,12 +25,12 @@
 #include "settings_topics_page_runtime.h"
 #include "recording_session_service.h"
 #include "storage_service.h"
-#include "summarize_page_interactions.h"
-#include "summarize_page_runtime.h"
 #include "time_page_interactions.h"
 #include "time_page_runtime.h"
 #include "topic_entries_page_interactions.h"
 #include "topic_entries_page_runtime.h"
+#include "topic_summary_page_interactions.h"
+#include "topic_summary_page_runtime.h"
 #include "topics_browse_page_interactions.h"
 #include "topics_browse_page_runtime.h"
 #include "ui_refresh_runtime.h"
@@ -1086,6 +1086,7 @@ ButtonResult ApplyTopicEntriesActivateResult(
     // Deferred so the screen change happens after input dispatch; app_shell polls for it.
     callbacks.show_back = []() { topic_entries_page_runtime::RequestBack(); };
     callbacks.view_details = []() { topic_entries_page_runtime::RequestViewDetails(); };
+    callbacks.summarize = []() { topic_entries_page_runtime::RequestShowSummary(); };
     topic_entries_page_interactions::ApplyPrimaryActivateResult(activation, callbacks);
     if (result.footer_item != footer_runtime::FooterFocusItem::kNone) {
         result.interaction_result.play_feedback = false;
@@ -1146,9 +1147,9 @@ ButtonResult HandleTopicEntriesButtonEvent(const button_service::ButtonEventInfo
     }
 }
 
-esp_err_t ApplySummarizePageAndFooterDisplayState()
+esp_err_t ApplyTopicSummaryPageAndFooterDisplayState()
 {
-    const esp_err_t page_err = summarize_page_runtime::UpdateDisplayState();
+    const esp_err_t page_err = topic_summary_page_runtime::UpdateDisplayState();
     if (page_err != ESP_OK && page_err != ESP_ERR_INVALID_STATE) {
         return page_err;
     }
@@ -1159,18 +1160,18 @@ esp_err_t ApplySummarizePageAndFooterDisplayState()
     return page_err != ESP_OK ? page_err : footer_err;
 }
 
-void ApplySummarizePageStateUpdate(const display_service::RefreshRequest& refresh_request)
+void ApplyTopicSummaryPageStateUpdate(const display_service::RefreshRequest& refresh_request)
 {
-    (void)summarize_page_runtime::UpdateDisplayStateAndRequestRefresh(refresh_request);
+    (void)topic_summary_page_runtime::UpdateDisplayStateAndRequestRefresh(refresh_request);
 }
 
-void ApplySummarizeFocusUpdate(const page_actions::FocusUpdateOutcome& outcome)
+void ApplyTopicSummaryFocusUpdate(const page_actions::FocusUpdateOutcome& outcome)
 {
     if (!outcome.handled) {
         return;
     }
     if (outcome.sync_footer_projection) {
-        footer_runtime::SetProjectionState(summarize_page_runtime::BuildFooterProjectionState());
+        footer_runtime::SetProjectionState(topic_summary_page_runtime::BuildFooterProjectionState());
     }
     if (outcome.apply_page_state) {
         const display_service::RefreshRequest refresh_request = {
@@ -1178,17 +1179,17 @@ void ApplySummarizeFocusUpdate(const page_actions::FocusUpdateOutcome& outcome)
             .scope = display_service::RefreshScope::kRegion,
         };
         if (outcome.sync_footer_projection) {
-            (void)ui_refresh_runtime::Schedule(ui_refresh_runtime::SurfaceKey::kSummarizePage,
-                                               &ApplySummarizePageAndFooterDisplayState,
+            (void)ui_refresh_runtime::Schedule(ui_refresh_runtime::SurfaceKey::kTopicSummaryPage,
+                                               &ApplyTopicSummaryPageAndFooterDisplayState,
                                                refresh_request);
             return;
         }
-        ApplySummarizePageStateUpdate(refresh_request);
+        ApplyTopicSummaryPageStateUpdate(refresh_request);
     }
 }
 
-ButtonResult ApplySummarizeActivateResult(
-    const summarize_page_interactions::ActivateResult& activation)
+ButtonResult ApplyTopicSummaryActivateResult(
+    const topic_summary_page_interactions::ActivateResult& activation)
 {
     ButtonResult result = {};
     if (!activation.handled) {
@@ -1198,24 +1199,15 @@ ButtonResult ApplySummarizeActivateResult(
     result.handled = true;
     result.interaction_result = MakeConsumedResult(activation.play_activate_cue);
 
-    summarize_page_interactions::ActivateCallbacks callbacks = {};
+    topic_summary_page_interactions::ActivateCallbacks callbacks = {};
     callbacks.show_home = [&result]() {
         result.footer_item = footer_runtime::FooterFocusItem::kHome;
     };
-    callbacks.show_settings = [&result]() {
-        result.footer_item = footer_runtime::FooterFocusItem::kSettings;
-    };
-    callbacks.show_wifi = [&result]() {
-        result.footer_item = footer_runtime::FooterFocusItem::kWifi;
-    };
-    callbacks.show_time = [&result]() {
-        result.footer_item = footer_runtime::FooterFocusItem::kTime;
-    };
-    callbacks.toggle_segment = []() { summarize_page_runtime::ToggleSegment(); };
-    callbacks.enter_scroll = []() { summarize_page_runtime::EnterScroll(); };
-    callbacks.request_notes_summary = []() { summarize_page_runtime::RequestNotesSummary(); };
-    callbacks.request_todos_summary = []() { summarize_page_runtime::RequestTodosSummary(); };
-    summarize_page_interactions::ApplyPrimaryActivateResult(activation, callbacks);
+    // Deferred so the screen change happens after input dispatch; app_shell polls for it.
+    callbacks.show_back = []() { topic_summary_page_runtime::RequestBack(); };
+    callbacks.enter_scroll = []() { topic_summary_page_runtime::EnterScroll(); };
+    callbacks.request_summary = []() { topic_summary_page_runtime::RequestSummary(); };
+    topic_summary_page_interactions::ApplyPrimaryActivateResult(activation, callbacks);
     if (result.footer_item != footer_runtime::FooterFocusItem::kNone) {
         result.interaction_result.play_feedback = false;
         result.interaction_result.feedback_cue = app_interaction::FeedbackCue::kNone;
@@ -1223,7 +1215,7 @@ ButtonResult ApplySummarizeActivateResult(
     return result;
 }
 
-FocusMoveResult ApplySummarizeMoveResult(const page_actions::FocusMoveOutcome& outcome)
+FocusMoveResult ApplyTopicSummaryMoveResult(const page_actions::FocusMoveOutcome& outcome)
 {
     FocusMoveResult result = {};
     if (!outcome.handled) {
@@ -1231,7 +1223,7 @@ FocusMoveResult ApplySummarizeMoveResult(const page_actions::FocusMoveOutcome& o
     }
     result.handled = true;
     result.interaction_result = MakeConsumedResult(outcome.play_navigation_cue);
-    ApplySummarizeFocusUpdate({
+    ApplyTopicSummaryFocusUpdate({
         .handled = outcome.handled,
         .apply_page_state = outcome.apply_page_state,
         .sync_footer_projection = outcome.sync_footer_projection,
@@ -1239,14 +1231,14 @@ FocusMoveResult ApplySummarizeMoveResult(const page_actions::FocusMoveOutcome& o
     return result;
 }
 
-ButtonResult HandleSummarizeButtonEvent(const button_service::ButtonEventInfo& event)
+ButtonResult HandleTopicSummaryButtonEvent(const button_service::ButtonEventInfo& event)
 {
     ButtonResult result = {};
 
-    // App-wide gesture: holding DOWN exits an entered control (segment / scroll).
+    // App-wide gesture: holding DOWN exits an entered control (scroll).
     if (event.button == button_service::ButtonId::kDown &&
         event.event == button_service::ButtonEvent::kLongPressStart) {
-        if (summarize_page_runtime::ExitActiveControl()) {
+        if (topic_summary_page_runtime::ExitActiveControl()) {
             result.handled = true;
             result.interaction_result = MakeConsumedResult(true);
         }
@@ -1259,7 +1251,7 @@ ButtonResult HandleSummarizeButtonEvent(const button_service::ButtonEventInfo& e
 
     switch (event.event) {
         case button_service::ButtonEvent::kSingleClick:
-            return ApplySummarizeActivateResult(summarize_page_runtime::ActivateFocusedItem());
+            return ApplyTopicSummaryActivateResult(topic_summary_page_runtime::ActivateFocusedItem());
         case button_service::ButtonEvent::kPressDown:
         case button_service::ButtonEvent::kPressUp:
         case button_service::ButtonEvent::kPressRepeat:
@@ -2012,8 +2004,8 @@ footer_runtime::ProjectionState BuildFooterProjectionForScreen(display_service::
             return topics_browse_page_runtime::BuildFooterProjectionState();
         case display_service::ScreenId::kTopicEntries:
             return topic_entries_page_runtime::BuildFooterProjectionState();
-        case display_service::ScreenId::kSummarize:
-            return summarize_page_runtime::BuildFooterProjectionState();
+        case display_service::ScreenId::kTopicSummary:
+            return topic_summary_page_runtime::BuildFooterProjectionState();
         case display_service::ScreenId::kNotes:
             return notes_page_runtime::BuildFooterProjectionState();
         case display_service::ScreenId::kTodos:
@@ -2058,8 +2050,8 @@ void ResetFocusForScreen(display_service::ScreenId screen)
         case display_service::ScreenId::kTopicEntries:
             topic_entries_page_runtime::ResetFocus();
             return;
-        case display_service::ScreenId::kSummarize:
-            summarize_page_runtime::ResetFocus();
+        case display_service::ScreenId::kTopicSummary:
+            topic_summary_page_runtime::ResetFocus();
             return;
         case display_service::ScreenId::kNotes:
             notes_page_runtime::ResetFocus();
@@ -2103,8 +2095,8 @@ FocusMoveResult MoveFocusForCurrentScreen(int delta, bool page_jump)
             return ApplyTopicsBrowseMoveResult(topics_browse_page_runtime::MoveFocus(delta));
         case display_service::ScreenId::kTopicEntries:
             return ApplyTopicEntriesMoveResult(topic_entries_page_runtime::MoveFocus(delta));
-        case display_service::ScreenId::kSummarize:
-            return ApplySummarizeMoveResult(summarize_page_runtime::MoveFocus(delta));
+        case display_service::ScreenId::kTopicSummary:
+            return ApplyTopicSummaryMoveResult(topic_summary_page_runtime::MoveFocus(delta));
         case display_service::ScreenId::kNotes:
             return ApplyNotesMoveResult(notes_page_runtime::MoveFocus(delta));
         case display_service::ScreenId::kTodos:
@@ -2143,8 +2135,8 @@ ButtonResult HandleButtonEventForScreen(display_service::ScreenId screen,
             return HandleTopicsBrowseButtonEvent(event);
         case display_service::ScreenId::kTopicEntries:
             return HandleTopicEntriesButtonEvent(event);
-        case display_service::ScreenId::kSummarize:
-            return HandleSummarizeButtonEvent(event);
+        case display_service::ScreenId::kTopicSummary:
+            return HandleTopicSummaryButtonEvent(event);
         case display_service::ScreenId::kNotes:
             return HandleNotesButtonEvent(event);
         case display_service::ScreenId::kTodos:

@@ -1418,3 +1418,64 @@ the first attempt despite the size of the change (two new screens' full
 10-step-checklist wiring plus a complete removal across ~20 files).
 
 Verified on-device: Craig confirmed "much better."
+
+## ~~Topics: retarget Summarize at topic-scoped summaries (last step)~~ — resolved
+
+Most of the Topics feature had shipped by this point: `topic_service` owns
+the topic registry (SD-JSON, id-indexed so rename/delete never rewrites
+recording sidecars, #43); Settings > Topics manages the list
+(create/rename/delete, #44); a "Topic" option in the recording tag menu
+creates a topic by voice straight from the normal record-and-tag flow (#45);
+the Details page's "Edit topics" multi-select assigns/unassigns topics on
+any entry (#46); and a Topics browse screen (Home's 3rd dashboard item,
+replacing the removed Vibe Check) lists topics and drills into a
+day-grouped timeline of every entry carrying one (#47). The one piece left:
+Craig didn't find the old fixed Notes/Todos Summarize screen useful, but its
+underlying engine was worth keeping and retargeting at topics.
+
+Craig chose "Replace it" when asked whether topic-scoped summarize should
+replace the standalone Summarize screen/dashboard item outright or sit
+alongside it -- so the old screen came out rather than gaining a neighbor.
+
+`summary_service` gained a third `SummaryKind::kTopic` via an internal
+`SummaryTarget{kind, topic_id, topic_name}` struct threaded through its
+prompt-building/filtering/caching (`FilterWindowedEntries`,
+`BuildSummaryInstructionText`, `BuildPromptText`, `BuildChunkSummaryPrompt`,
+`BuildRollupPrompt`, `SummaryFileBase`, `CompleteSummaryRequest`, etc.) --
+a mechanical, same-shape refactor with no behavior change for Notes/Todos.
+New `RequestTopicSummary(topic_id, topic_name)` matches every recording
+tagged with that topic id with **no time-window cutoff** (`metadata.
+window_days = 0`), unlike Notes/Todos' fixed 3-day window -- a topic can be
+revisited months apart. Results cache to SD as
+`summaries/topic_<id>.{txt,json}`, loaded on demand via the new
+`LoadTopicSummaryCache(topic_id)` (a pure synchronous SD read, not folded
+into the shared `Snapshot` until an actual generation completes).
+
+A new "Summarize" button on the Topic Entries screen opens the new
+`TopicSummaryPage` (`ScreenId::kTopicSummary`): heading (topic name) +
+subtitle + scroll container with the cached/generated text, and a Back /
+Get-or-Refresh-summary button row below (same shape as Details' Back/
+Transcribe row). The button is hidden for an empty topic -- nothing to
+summarize yet -- using the same want-vs-have navigation-model gating
+`DetailsPageCoordinator::UpdateNavigationModel` established for its
+Transcribe button (`BuildTopicEntriesPageNavigationModel` gained a
+`with_summarize` parameter). `app_shell.cpp`'s `HandleTopicSummaryEvent`
+filters the shared `summary_service` event stream to the topic actually on
+screen (`snapshot.request.kind == kTopic && snapshot.topic_id ==
+CurrentTopicId()`) so a stale in-flight request for a different topic can't
+clobber what's showing.
+
+The standalone Summarize screen came out in the same removal shape as the
+Vibe Check deletion (#47): its `epaper_ui` renderer and `main/summarize_
+page_{coordinator,runtime,interactions}` trio deleted outright, `ScreenId::
+kSummarize`/`SurfaceKey::kSummarizePage`/`NavigationScope::kSummarize` and
+all wiring across `display_service`, `ui_refresh_runtime`,
+`page_navigation`, `page_input_runtime.cpp`, and `app_shell.cpp` removed in
+lockstep. `DashboardMenuItem` dropped from 5 slots to 4
+(`{FollowUp, Topics, Notes, Todos}`) -- confirmed layout-safe beforehand
+since the dashboard menu is a vertical fixed-item-extent list, not a grid.
+
+Verified on-device: clean `--strict-warnings` build with zero warnings.
+Craig confirmed "Works great" -- the 4-item dashboard menu, the Summarize
+button appearing only on topics with entries, and the full get/refresh
+summary flow all behaved as expected.

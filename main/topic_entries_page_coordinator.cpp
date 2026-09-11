@@ -17,6 +17,16 @@ int64_t EntryUnixSeconds(const RecordingEntry& entry)
     return entry.modified_unix_seconds;
 }
 
+bool AnyGroupHasEntries(const std::vector<TopicEntriesPageCoordinator::TimelineGroup>& groups)
+{
+    for (const TopicEntriesPageCoordinator::TimelineGroup& group : groups) {
+        if (!group.entries.empty()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace
 
 TopicEntriesPageCoordinator::TopicEntriesPageCoordinator()
@@ -111,15 +121,19 @@ void TopicEntriesPageCoordinator::Show(const std::vector<RecordingEntry>& record
     }
     std::vector<TimelineGroup> groups = BuildGroups(recordings);
     const int group_count = static_cast<int>(groups.size());
-    focus_.Show(std::move(groups), page_navigation::BuildTopicEntriesPageNavigationModel(group_count));
+    const bool with_summarize = AnyGroupHasEntries(groups);
+    focus_.Show(std::move(groups),
+               page_navigation::BuildTopicEntriesPageNavigationModel(group_count, with_summarize));
 }
 
 void TopicEntriesPageCoordinator::RefreshFromArchive(const std::vector<RecordingEntry>& recordings)
 {
     std::vector<TimelineGroup> groups = BuildGroups(recordings);
     const int group_count = static_cast<int>(groups.size());
+    const bool with_summarize = AnyGroupHasEntries(groups);
     focus_.RefreshPreservingSelection(
-        std::move(groups), page_navigation::BuildTopicEntriesPageNavigationModel(group_count));
+        std::move(groups),
+        page_navigation::BuildTopicEntriesPageNavigationModel(group_count, with_summarize));
 }
 
 epaper_ui::TopicEntriesPageState TopicEntriesPageCoordinator::BuildState() const
@@ -151,5 +165,12 @@ epaper_ui::TopicEntriesPageState TopicEntriesPageCoordinator::BuildState() const
     state.back_button.label_text = "Back";
     state.back_button.selected =
         IsRoleFocused(page_navigation::NavigationItemRole::kTopicEntriesBackButton);
+
+    state.show_summarize_button =
+        navigation_model().IndexOfRole(page_navigation::NavigationItemRole::kTopicEntriesSummarizeButton) >=
+        0;
+    state.summarize_button.label_text = "Summarize";
+    state.summarize_button.selected =
+        IsRoleFocused(page_navigation::NavigationItemRole::kTopicEntriesSummarizeButton);
     return state;
 }

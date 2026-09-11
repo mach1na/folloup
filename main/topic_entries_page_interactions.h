@@ -17,6 +17,8 @@ enum class ActivateIntent : uint8_t {
     // Opens the Details page for the selected entry -- this is a browse-only screen, so a click
     // goes straight to Details rather than opening an item-actions modal like Notes/Todos do.
     kViewDetails,
+    // Opens the topic's summary screen.
+    kSummarize,
 };
 
 struct ActivateResult {
@@ -32,6 +34,7 @@ struct ActivateCallbacks {
     std::function<void()> show_home;
     std::function<void()> show_back;
     std::function<void()> view_details;
+    std::function<void()> summarize;
 };
 
 // Primary on a focused date chip enters its item list; on a focused item it views the entry's

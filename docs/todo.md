@@ -134,36 +134,3 @@ Open questions for whoever designs this:
 
 Own branch/PR.
 
-## Topics: retarget Summarize at topic-scoped summaries (last step)
-
-Most of the Topics feature has shipped: `topic_service` owns the topic
-registry (SD-JSON, id-indexed so rename/delete never rewrites recording
-sidecars, #43); Settings > Topics manages the list (create/rename/delete,
-#44); a "Topic" option in the recording tag menu creates a topic by voice
-straight from the normal record-and-tag flow (#45); the Details page's
-"Edit topics" multi-select assigns/unassigns topics on any entry (#46); and
-a Topics browse screen (Home's 3rd dashboard item, replacing the removed
-Vibe Check) lists topics and drills into a day-grouped timeline of every
-entry carrying one.
-
-The one piece not yet done: Craig doesn't find the current Summarize screen
-useful either, but its underlying engine (`summary_service` — token-budgeted,
-chunked Gemini summarization with SD-cached results, `docs/gemini-service.md`)
-is worth keeping. Today it only summarizes two fixed, static buckets
-(everything tagged Note, everything tagged Task). The more useful version is
-almost certainly "summarize Topic X" instead: pass `summary_service` a
-topic-filtered entry set (the same filter `topic_entries_page_coordinator.cpp`'s
-`BuildGroups` already implements — match on `RecordingMetadata::topic_ids`)
-rather than a tag-filtered one, reachable as an action from the Topics browse
-screen's filtered-timeline view.
-
-Open questions for whoever designs this:
-- Does topic-scoped summarization replace the existing Notes/Todos summary
-  buckets outright, or sit alongside them? If Summarize the standalone
-  dashboard item goes away (Craig's original framing), `DashboardMenuItem`
-  would need another look at its now-4-useful-of-5 slots.
-- `summary_service`'s existing per-kind SD cache (Notes/Todos) would need a
-  per-topic cache key shape instead of/in addition to that.
-
-Own branch/PR.
-

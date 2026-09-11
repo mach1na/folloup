@@ -18,7 +18,6 @@ that no longer apply — this manual is the accurate reference.
 - [Notes, Todos, and Follow-up](#notes-todos-and-follow-up)
 - [Viewing a recording's details](#viewing-a-recordings-details)
 - [Topics](#topics)
-- [Summarize](#summarize)
 - [Settings](#settings)
 - [Locking, sleep, and battery](#locking-sleep-and-battery)
 - [Shutting down and charging](#shutting-down-and-charging)
@@ -132,8 +131,8 @@ Below that is the main menu, in this order:
 
 - **Follow up** — anything you've flagged for later, regardless of what
   it's tagged as (badge shows how many).
-- **Summarize** — Gemini-generated summaries of your Notes or Todos.
-- **Topics** — browse everything tagged with a given [topic](#topics).
+- **Topics** — browse everything tagged with a given [topic](#topics),
+  including Gemini-generated summaries.
 - **Notes** (badge shows how many) — your Note and Idea recordings.
 - **Todos** (badge shows how many) — your Task recordings.
 
@@ -228,20 +227,20 @@ topics](#manage-topics) for renaming/deleting one). The Home screen's
    screens group their own timelines. Each row shows which type it is
    (Note/Idea/Task) so you can tell them apart.
 3. Select an entry to open its [Details](#viewing-a-recordings-details).
-4. **Back** returns you to the topic list.
+4. Once the topic has at least one entry, a **Summarize** button appears
+   next to **Back**. Select it for a Gemini-written recap of everything
+   ever tagged with this topic — unlike Notes/Todos there's no recent-only
+   time window, since a topic can be revisited months apart. Press **Get
+   summary** to generate one; the result appears in the scrollable area
+   above (same 10%-step scrolling as the Details page). Revisiting a
+   topic's summary later shows the one you already generated, without
+   regenerating it — press **Refresh summary** for a new one. If Gemini
+   isn't connected yet, you'll see a prompt to set it up instead.
+5. **Back** returns you to the topic list — or, from a topic's summary,
+   to that topic's entries.
 
 If a topic has nothing tagged with it yet, you'll see "No entries tagged
-with this topic yet."
-
-## Summarize
-
-Summarize gives you a Gemini-written recap of either your **Notes** or your
-**Todos** — switch between the two with the segment control at the top,
-the same style of switch used on the Todos screen. Press **Get summary**
-to have Gemini generate a fresh one for whichever is selected; the result
-appears in the scrollable area below (same 10%-step scrolling as the
-Details page). If Gemini isn't connected yet, you'll see a prompt to set
-it up instead of a summary.
+with this topic yet" and no Summarize button.
 
 ## Settings
 

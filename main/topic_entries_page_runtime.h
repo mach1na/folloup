@@ -44,6 +44,17 @@ void RequestViewDetails();
 // View details is deferred the same way as Back. Empty when none is pending.
 std::string ConsumePendingViewDetails();
 
+// Stashes this topic's id/name for the deferred Topic Summary transition (called from the
+// kSummarize activation callback). App_shell polls ConsumePendingShowSummary() after input
+// dispatch returns, same pattern as topics_browse_page_runtime's RequestShowEntriesForFocusedTopic.
+void RequestShowSummary();
+struct PendingTopicSummary {
+    bool valid = false;
+    std::string topic_id = {};
+    std::string topic_name = {};
+};
+PendingTopicSummary ConsumePendingShowSummary();
+
 }  // namespace topic_entries_page_runtime
 
 #endif  // TOPIC_ENTRIES_PAGE_RUNTIME_H_

@@ -14,7 +14,7 @@ enum class NavigationScope : uint8_t {
     kDashboard,
     kTopicsBrowse,
     kTopicEntries,
-    kSummarize,
+    kTopicSummary,
     kNotes,
     kTodos,
     kFollowUp,
@@ -35,7 +35,7 @@ enum class NavigationItemSection : uint8_t {
     kTopicsBrowsePageControls,
     kTopicEntriesPageTimelineGroups,
     kTopicEntriesPageControls,
-    kSummarizePageControls,
+    kTopicSummaryPageControls,
     kNotesPageTimelineGroups,
     kTodosPageControls,
     kTodosPageTimelineGroups,
@@ -89,9 +89,10 @@ enum class NavigationItemRole : uint8_t {
     kTopicsBrowseTopicRow,
     kTopicEntriesTimelineGroup,
     kTopicEntriesBackButton,
-    kSummarizePageSegmentControl,
-    kSummarizePageScrollContainer,
-    kSummarizePageGetSummaryButton,
+    kTopicEntriesSummarizeButton,
+    kTopicSummaryPageScrollContainer,
+    kTopicSummaryPageBackButton,
+    kTopicSummaryPageGetSummaryButton,
     kNotesPageTimelineGroup,
     kTodosPageSegmentControl,
     kTodosPageTimelineGroup,
@@ -129,8 +130,11 @@ NavigationModel BuildSettingsTodosPageNavigationModel();
 NavigationModel BuildSettingsTopicsPageNavigationModel(int topic_count);
 NavigationModel BuildDashboardPageNavigationModel();
 NavigationModel BuildTopicsBrowsePageNavigationModel(int topic_count);
-NavigationModel BuildTopicEntriesPageNavigationModel(int timeline_group_count);
-NavigationModel BuildSummarizePageNavigationModel();
+// with_summarize adds a focusable Summarize button (shown only once the topic has at least one
+// entry), same shape as BuildDetailsPageNavigationModel's with_transcribe.
+NavigationModel BuildTopicEntriesPageNavigationModel(int timeline_group_count,
+                                                     bool with_summarize = false);
+NavigationModel BuildTopicSummaryPageNavigationModel();
 NavigationModel BuildNotesPageNavigationModel(int timeline_group_count);
 NavigationModel BuildTodosPageNavigationModel(int timeline_group_count);
 NavigationModel BuildFollowUpPageNavigationModel(int timeline_group_count);

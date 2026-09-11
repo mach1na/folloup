@@ -21,6 +21,7 @@ std::mutex s_mutex;
 TopicEntriesPageCoordinator s_coordinator = {};
 std::atomic<bool> s_pending_back{false};
 std::string s_pending_view_details_id;
+bool s_pending_summary = false;
 
 epaper_ui::TopicEntriesPageState BuildStateLocked()
 {
@@ -194,6 +195,26 @@ std::string ConsumePendingViewDetails()
     std::string id;
     id.swap(s_pending_view_details_id);
     return id;
+}
+
+void RequestShowSummary()
+{
+    std::lock_guard<std::mutex> lock(s_mutex);
+    s_pending_summary = true;
+}
+
+PendingTopicSummary ConsumePendingShowSummary()
+{
+    std::lock_guard<std::mutex> lock(s_mutex);
+    PendingTopicSummary pending = {};
+    if (!s_pending_summary) {
+        return pending;
+    }
+    s_pending_summary = false;
+    pending.valid = true;
+    pending.topic_id = s_coordinator.topic_id();
+    pending.topic_name = s_coordinator.topic_name();
+    return pending;
 }
 
 }  // namespace topic_entries_page_runtime

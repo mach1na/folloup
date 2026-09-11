@@ -41,6 +41,15 @@ struct SourceEntry {
     int part_count = 0;
 };
 
+// What a summary request is for. kNotes/kTodos carry no extra data (fixed buckets); kTopic
+// carries the topic being summarized. Threaded through prompt-building/filtering/caching instead
+// of a bare SummaryKind so those internal functions have what they need for either case.
+struct SummaryTarget {
+    SummaryKind kind = SummaryKind::kNone;
+    std::string topic_id = {};
+    std::string topic_name = {};
+};
+
 struct GenerationResult {
     bool success = false;
     std::string text = {};
@@ -64,9 +73,12 @@ std::string TrimCopy(std::string value)
     return value;
 }
 
-const char* SegmentLabelForKind(SummaryKind kind)
+std::string SegmentLabelForTarget(const SummaryTarget& target)
 {
-    return kind == SummaryKind::kTodos ? "Todos" : "Notes";
+    if (target.kind == SummaryKind::kTopic) {
+        return target.topic_name;
+    }
+    return target.kind == SummaryKind::kTodos ? "Todos" : "Notes";
 }
 
 // Tag -> bucket mapping mirrors recording_archive_service: Task is a Todo; everything else
@@ -117,10 +129,22 @@ bool GeneratePromptTextResult(const std::string& prompt, std::string* text_out,
 
 // --- prompt building -------------------------------------------------------
 
-std::string BuildSummaryInstructionText(SummaryKind kind, bool intermediate)
+std::string BuildSummaryInstructionText(const SummaryTarget& target, bool intermediate)
 {
     std::string text;
-    if (kind == SummaryKind::kNotes) {
+    if (target.kind == SummaryKind::kTopic) {
+        text += "Summarize the recordings captured under the topic \"" + target.topic_name +
+                "\".\n\n";
+        text += intermediate
+                    ? "Create a compact intermediate summary that faithfully captures the main "
+                      "themes, decisions, follow-ups, open questions, tasks, and their completion "
+                      "state where clear from the source. Keep it factual, plain text, and easy to "
+                      "merge later. Avoid markdown tables.\n\n"
+                    : "Create a summary capturing the main themes, decisions, follow-ups, open "
+                      "questions, tasks, and their completion state where clear from the source, "
+                      "in plain text. Keep it concise and factual. Use short paragraphs and avoid "
+                      "markdown tables.\n\n";
+    } else if (target.kind == SummaryKind::kNotes) {
         text += intermediate
                     ? "Summarize the notes captured within the available transcripts. Create a "
                       "compact intermediate summary that faithfully captures the main themes, "
@@ -179,24 +203,25 @@ void AppendSourceEntriesToPrompt(std::string* prompt, const std::vector<SourceEn
     }
 }
 
-std::string BuildPromptText(SummaryKind kind, const std::vector<SourceEntry>& entries)
+std::string BuildPromptText(const SummaryTarget& target, const std::vector<SourceEntry>& entries)
 {
     std::string prompt;
     prompt.reserve(8192);
-    prompt += BuildSummaryInstructionText(kind, false);
+    prompt += BuildSummaryInstructionText(target, false);
     AppendSourceEntriesToPrompt(&prompt, entries);
     prompt += "Now write the final summary for the ";
-    prompt += SegmentLabelForKind(kind);
+    prompt += SegmentLabelForTarget(target);
     prompt += ". Put the summary only in the response.";
     return prompt;
 }
 
-std::string BuildChunkSummaryPrompt(SummaryKind kind, const std::vector<SourceEntry>& entries,
-                                    int chunk_index, int chunk_count)
+std::string BuildChunkSummaryPrompt(const SummaryTarget& target,
+                                    const std::vector<SourceEntry>& entries, int chunk_index,
+                                    int chunk_count)
 {
     std::string prompt;
     prompt.reserve(8192);
-    prompt += BuildSummaryInstructionText(kind, true);
+    prompt += BuildSummaryInstructionText(target, true);
     if (chunk_count > 1) {
         prompt += "This is chunk ";
         prompt += std::to_string(chunk_index);
@@ -209,12 +234,12 @@ std::string BuildChunkSummaryPrompt(SummaryKind kind, const std::vector<SourceEn
     return prompt;
 }
 
-std::string BuildRollupPrompt(SummaryKind kind, const std::vector<std::string>& partial_summaries,
-                              bool intermediate)
+std::string BuildRollupPrompt(const SummaryTarget& target,
+                              const std::vector<std::string>& partial_summaries, bool intermediate)
 {
     std::string prompt;
     prompt.reserve(4096);
-    prompt += BuildSummaryInstructionText(kind, intermediate);
+    prompt += BuildSummaryInstructionText(target, intermediate);
     prompt += intermediate ? "Chunk summaries to merge:\n\n" : "Intermediate summaries:\n\n";
     for (size_t index = 0; index < partial_summaries.size(); ++index) {
         prompt += intermediate ? "Chunk summary " : "Intermediate summary ";
@@ -256,8 +281,8 @@ size_t FindSplitOffset(const std::string& text)
     return midpoint;
 }
 
-bool SplitEntryToFitTokenBudget(SummaryKind kind, const SourceEntry& entry, size_t token_budget,
-                                std::vector<SourceEntry>* out)
+bool SplitEntryToFitTokenBudget(const SummaryTarget& target, const SourceEntry& entry,
+                                size_t token_budget, std::vector<SourceEntry>* out)
 {
     if (out == nullptr) {
         return false;
@@ -270,7 +295,7 @@ bool SplitEntryToFitTokenBudget(SummaryKind kind, const SourceEntry& entry, size
 
         SourceEntry candidate = entry;
         candidate.text = text;
-        if (CountPromptTokens(BuildChunkSummaryPrompt(kind, {candidate}, 1, 1)) <= token_budget) {
+        if (CountPromptTokens(BuildChunkSummaryPrompt(target, {candidate}, 1, 1)) <= token_budget) {
             fragments.push_back(std::move(candidate.text));
             continue;
         }
@@ -302,7 +327,7 @@ bool SplitEntryToFitTokenBudget(SummaryKind kind, const SourceEntry& entry, size
     return !out->empty();
 }
 
-std::vector<std::vector<SourceEntry>> BuildChunkGroups(SummaryKind kind,
+std::vector<std::vector<SourceEntry>> BuildChunkGroups(const SummaryTarget& target,
                                                        const std::vector<SourceEntry>& entries,
                                                        size_t token_budget, bool* success_out)
 {
@@ -317,7 +342,7 @@ std::vector<std::vector<SourceEntry>> BuildChunkGroups(SummaryKind kind,
         }
         std::vector<SourceEntry> trial_chunk = current_chunk;
         trial_chunk.push_back(entry);
-        if (CountPromptTokens(BuildChunkSummaryPrompt(kind, trial_chunk, 1, 1)) <= token_budget) {
+        if (CountPromptTokens(BuildChunkSummaryPrompt(target, trial_chunk, 1, 1)) <= token_budget) {
             current_chunk = std::move(trial_chunk);
             continue;
         }
@@ -330,7 +355,7 @@ std::vector<std::vector<SourceEntry>> BuildChunkGroups(SummaryKind kind,
 
     for (const std::vector<SourceEntry>& chunk : chunks) {
         if (chunk.empty() ||
-            CountPromptTokens(BuildChunkSummaryPrompt(kind, chunk, 1, 1)) > token_budget) {
+            CountPromptTokens(BuildChunkSummaryPrompt(target, chunk, 1, 1)) > token_budget) {
             success = false;
             break;
         }
@@ -341,7 +366,7 @@ std::vector<std::vector<SourceEntry>> BuildChunkGroups(SummaryKind kind,
     return chunks;
 }
 
-bool SplitSummaryTextForRollup(SummaryKind kind, const std::string& summary_text,
+bool SplitSummaryTextForRollup(const SummaryTarget& target, const std::string& summary_text,
                                size_t token_budget, std::vector<std::string>* out)
 {
     if (out == nullptr) {
@@ -352,7 +377,7 @@ bool SplitSummaryTextForRollup(SummaryKind kind, const std::string& summary_text
     while (!pending.empty()) {
         const std::string text = std::move(pending.front());
         pending.pop_front();
-        if (CountPromptTokens(BuildRollupPrompt(kind, {text}, true)) <= token_budget) {
+        if (CountPromptTokens(BuildRollupPrompt(target, {text}, true)) <= token_budget) {
             fragments.push_back(text);
             continue;
         }
@@ -375,7 +400,7 @@ bool SplitSummaryTextForRollup(SummaryKind kind, const std::string& summary_text
     return !out->empty();
 }
 
-bool GenerateRollupSummaryRecursive(SummaryKind kind,
+bool GenerateRollupSummaryRecursive(const SummaryTarget& target,
                                     const std::vector<std::string>& partial_summaries, int depth,
                                     std::string* text_out, std::string* error_code_out,
                                     std::string* error_message_out)
@@ -390,7 +415,7 @@ bool GenerateRollupSummaryRecursive(SummaryKind kind,
         return false;
     }
 
-    const std::string prompt = BuildRollupPrompt(kind, partial_summaries, false);
+    const std::string prompt = BuildRollupPrompt(target, partial_summaries, false);
     if (CountPromptTokens(prompt) <= static_cast<size_t>(kSummaryRollupTokenBudget)) {
         return GeneratePromptTextResult(prompt, text_out, error_code_out, error_message_out);
     }
@@ -407,7 +432,8 @@ bool GenerateRollupSummaryRecursive(SummaryKind kind,
     std::vector<std::string> prepared_summaries;
     for (const std::string& summary : partial_summaries) {
         std::vector<std::string> split_summaries;
-        if (!SplitSummaryTextForRollup(kind, summary, kSummaryChunkTokenBudget, &split_summaries)) {
+        if (!SplitSummaryTextForRollup(target, summary, kSummaryChunkTokenBudget,
+                                       &split_summaries)) {
             if (error_code_out != nullptr) {
                 *error_code_out = "summary_rollup_split_failed";
             }
@@ -429,7 +455,7 @@ bool GenerateRollupSummaryRecursive(SummaryKind kind,
         }
         std::vector<std::string> trial_batch = current_batch;
         trial_batch.push_back(summary);
-        if (CountPromptTokens(BuildRollupPrompt(kind, trial_batch, true)) <=
+        if (CountPromptTokens(BuildRollupPrompt(target, trial_batch, true)) <=
             static_cast<size_t>(kSummaryChunkTokenBudget)) {
             current_batch = std::move(trial_batch);
             continue;
@@ -445,14 +471,14 @@ bool GenerateRollupSummaryRecursive(SummaryKind kind,
     merged_partials.reserve(batches.size());
     for (const std::vector<std::string>& batch : batches) {
         std::string merged_text;
-        if (!GeneratePromptTextResult(BuildRollupPrompt(kind, batch, true), &merged_text,
+        if (!GeneratePromptTextResult(BuildRollupPrompt(target, batch, true), &merged_text,
                                       error_code_out, error_message_out)) {
             return false;
         }
         merged_partials.push_back(std::move(merged_text));
     }
-    return GenerateRollupSummaryRecursive(kind, merged_partials, depth + 1, text_out, error_code_out,
-                                          error_message_out);
+    return GenerateRollupSummaryRecursive(target, merged_partials, depth + 1, text_out,
+                                          error_code_out, error_message_out);
 }
 
 // --- SD cache persistence ---------------------------------------------------
@@ -468,9 +494,12 @@ std::string JoinPath(const std::string& left, const std::string& right)
     return left + "/" + right;
 }
 
-const char* SummaryFileBase(SummaryKind kind)
+std::string SummaryFileBase(const SummaryTarget& target)
 {
-    return kind == SummaryKind::kTodos ? "todos_latest" : "notes_latest";
+    if (target.kind == SummaryKind::kTopic) {
+        return "topic_" + target.topic_id;
+    }
+    return target.kind == SummaryKind::kTodos ? "todos_latest" : "notes_latest";
 }
 
 bool ReadTextFile(const std::string& path, std::string* out)
@@ -581,9 +610,9 @@ struct LoadCacheContext {
     CacheEntrySnapshot todos = {};
 };
 
-void LoadCacheEntry(const std::string& dir, SummaryKind kind, CacheEntrySnapshot* out)
+void LoadCacheEntry(const std::string& dir, const SummaryTarget& target, CacheEntrySnapshot* out)
 {
-    const std::string base = JoinPath(dir, SummaryFileBase(kind));
+    const std::string base = JoinPath(dir, SummaryFileBase(target));
     std::string text;
     if (!ReadTextFile(base + ".txt", &text) || text.empty()) {
         return;
@@ -604,13 +633,29 @@ esp_err_t LoadCacheOnMountedFilesystem(const char* mount_point, void* context)
     }
     const std::string dir = JoinPath(mount_point, "summaries");
     ctx->storage_available = EnsureSummaryDirectory(dir);
-    LoadCacheEntry(dir, SummaryKind::kNotes, &ctx->notes);
-    LoadCacheEntry(dir, SummaryKind::kTodos, &ctx->todos);
+    LoadCacheEntry(dir, SummaryTarget{.kind = SummaryKind::kNotes}, &ctx->notes);
+    LoadCacheEntry(dir, SummaryTarget{.kind = SummaryKind::kTodos}, &ctx->todos);
+    return ESP_OK;
+}
+
+struct LoadTopicCacheContext {
+    SummaryTarget target = {};
+    CacheEntrySnapshot topic = {};
+};
+
+esp_err_t LoadTopicCacheOnMountedFilesystem(const char* mount_point, void* context)
+{
+    auto* ctx = static_cast<LoadTopicCacheContext*>(context);
+    if (mount_point == nullptr || ctx == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const std::string dir = JoinPath(mount_point, "summaries");
+    LoadCacheEntry(dir, ctx->target, &ctx->topic);
     return ESP_OK;
 }
 
 struct SaveCacheContext {
-    SummaryKind kind = SummaryKind::kNone;
+    SummaryTarget target = {};
     const std::string* text = nullptr;
     const std::string* metadata_json = nullptr;
     bool saved = false;
@@ -627,7 +672,7 @@ esp_err_t SaveCacheOnMountedFilesystem(const char* mount_point, void* context)
     if (!EnsureSummaryDirectory(dir)) {
         return ESP_FAIL;
     }
-    const std::string base = JoinPath(dir, SummaryFileBase(ctx->kind));
+    const std::string base = JoinPath(dir, SummaryFileBase(ctx->target));
     ctx->saved = WriteTextFile(base + ".txt", *ctx->text) &&
                  WriteTextFile(base + ".json", *ctx->metadata_json);
     return ctx->saved ? ESP_OK : ESP_FAIL;
@@ -643,27 +688,39 @@ int64_t ResolveEntryUnixSeconds(const RecordingEntry& entry)
     return entry.modified_unix_seconds;
 }
 
+bool EntryHasTopicId(const RecordingEntry& entry, const std::string& topic_id)
+{
+    const std::vector<std::string>& topic_ids = entry.metadata.topic_ids;
+    return std::find(topic_ids.begin(), topic_ids.end(), topic_id) != topic_ids.end();
+}
+
 std::vector<RecordingEntry> FilterWindowedEntries(const std::vector<RecordingEntry>& entries,
-                                                  SummaryKind kind, int* source_item_count_out)
+                                                  const SummaryTarget& target,
+                                                  int* source_item_count_out)
 {
     std::vector<RecordingEntry> filtered;
     int source_item_count = 0;
 
+    // Topic summaries cover every recording ever tagged with the topic, not a recent window --
+    // unlike Notes/Todos' fixed 3-day bucket, a topic can be revisited months apart.
     const time_t now = time(nullptr);
     const int64_t cutoff =
-        now > static_cast<time_t>(7 * 24 * 60 * 60)
+        target.kind != SummaryKind::kTopic && now > static_cast<time_t>(7 * 24 * 60 * 60)
             ? static_cast<int64_t>(now) - static_cast<int64_t>(kSummaryWindowDays) * 24 * 60 * 60
             : 0;
 
     for (const RecordingEntry& entry : entries) {
-        // Archived todos are done and their audio is already gone -- exclude them from the
-        // summary source set the same way the Todos page's own "Current" view does, rather than
-        // re-summarizing tasks that have already been put away. Notes/Ideas are never archived, so
-        // this only actually filters anything on the kTodos branch.
-        const bool matches_kind = kind == SummaryKind::kTodos
-                                      ? IsTodoRecordingTag(entry.metadata.tag) &&
-                                            !entry.metadata.archived
-                                      : IsNotesRecordingTag(entry.metadata.tag);
+        bool matches_kind = false;
+        if (target.kind == SummaryKind::kTopic) {
+            matches_kind = EntryHasTopicId(entry, target.topic_id);
+        } else if (target.kind == SummaryKind::kTodos) {
+            // Archived todos are done and their audio is already gone -- exclude them from the
+            // summary source set the same way the Todos page's own "Current" view does, rather
+            // than re-summarizing tasks that have already been put away.
+            matches_kind = IsTodoRecordingTag(entry.metadata.tag) && !entry.metadata.archived;
+        } else {
+            matches_kind = IsNotesRecordingTag(entry.metadata.tag);
+        }
         if (!matches_kind) {
             continue;
         }
@@ -690,8 +747,7 @@ std::vector<RecordingEntry> FilterWindowedEntries(const std::vector<RecordingEnt
 // transcript yet) are skipped and counted -- summarizing does NOT transcribe on the fly, since
 // that means one blocking Gemini round-trip per recording (slow, and prone to 503/timeout that
 // tanks the whole run). Recordings are transcribed at capture time; ideas via the Vibe Check star.
-std::vector<SourceEntry> CollectSourceEntries(SummaryKind kind,
-                                              const std::vector<RecordingEntry>& entries,
+std::vector<SourceEntry> CollectSourceEntries(const std::vector<RecordingEntry>& entries,
                                               int* transcript_count_out, int* missing_count_out)
 {
     std::vector<SourceEntry> source_entries;
@@ -711,7 +767,6 @@ std::vector<SourceEntry> CollectSourceEntries(SummaryKind kind,
             .metadata = entry.metadata,
         });
     }
-    (void)kind;
 
     if (transcript_count_out != nullptr) {
         *transcript_count_out = transcript_count;
@@ -724,19 +779,20 @@ std::vector<SourceEntry> CollectSourceEntries(SummaryKind kind,
 
 // --- summary generation -----------------------------------------------------
 
-GenerationResult GenerateChunkedSummary(SummaryKind kind, const std::vector<SourceEntry>& entries,
+GenerationResult GenerateChunkedSummary(const SummaryTarget& target,
+                                        const std::vector<SourceEntry>& entries,
                                         CacheMetadata metadata)
 {
     GenerationResult result = {};
     std::vector<SourceEntry> prepared_entries;
     for (const SourceEntry& entry : entries) {
-        if (CountPromptTokens(BuildChunkSummaryPrompt(kind, {entry}, 1, 1)) <=
+        if (CountPromptTokens(BuildChunkSummaryPrompt(target, {entry}, 1, 1)) <=
             static_cast<size_t>(kSummaryChunkTokenBudget)) {
             prepared_entries.push_back(entry);
             continue;
         }
         std::vector<SourceEntry> fragments;
-        if (!SplitEntryToFitTokenBudget(kind, entry, kSummaryChunkTokenBudget, &fragments)) {
+        if (!SplitEntryToFitTokenBudget(target, entry, kSummaryChunkTokenBudget, &fragments)) {
             result.error_code = "summary_chunk_split_failed";
             result.error_message = "Summary input could not be chunked";
             result.metadata = metadata;
@@ -747,7 +803,7 @@ GenerationResult GenerateChunkedSummary(SummaryKind kind, const std::vector<Sour
 
     bool chunks_valid = false;
     const std::vector<std::vector<SourceEntry>> chunks =
-        BuildChunkGroups(kind, prepared_entries, kSummaryChunkTokenBudget, &chunks_valid);
+        BuildChunkGroups(target, prepared_entries, kSummaryChunkTokenBudget, &chunks_valid);
     if (!chunks_valid || chunks.empty()) {
         result.error_code = "summary_chunk_failed";
         result.error_message = "Summary input could not be chunked";
@@ -760,7 +816,7 @@ GenerationResult GenerateChunkedSummary(SummaryKind kind, const std::vector<Sour
     for (size_t index = 0; index < chunks.size(); ++index) {
         std::string partial_summary;
         if (!GeneratePromptTextResult(
-                BuildChunkSummaryPrompt(kind, chunks[index], static_cast<int>(index + 1U),
+                BuildChunkSummaryPrompt(target, chunks[index], static_cast<int>(index + 1U),
                                         static_cast<int>(chunks.size())),
                 &partial_summary, &result.error_code, &result.error_message)) {
             result.metadata = metadata;
@@ -770,7 +826,7 @@ GenerationResult GenerateChunkedSummary(SummaryKind kind, const std::vector<Sour
     }
 
     std::string final_summary;
-    if (!GenerateRollupSummaryRecursive(kind, partial_summaries, 0, &final_summary,
+    if (!GenerateRollupSummaryRecursive(target, partial_summaries, 0, &final_summary,
                                         &result.error_code, &result.error_message)) {
         result.metadata = metadata;
         return result;
@@ -784,11 +840,11 @@ GenerationResult GenerateChunkedSummary(SummaryKind kind, const std::vector<Sour
     return result;
 }
 
-GenerationResult GenerateSummary(SummaryKind kind)
+GenerationResult GenerateSummary(const SummaryTarget& target)
 {
     GenerationResult result = {};
 
-    ESP_LOGI(kTag, "Generating %s summary", SummaryKindName(kind));
+    ESP_LOGI(kTag, "Generating %s summary", SegmentLabelForTarget(target).c_str());
 
     const gemini_service::Snapshot gemini_snapshot = gemini_service::GetSnapshot();
     if (!gemini_snapshot.runtime.ready) {
@@ -818,15 +874,16 @@ GenerationResult GenerateSummary(SummaryKind kind)
     }
     int source_item_count = 0;
     const std::vector<RecordingEntry> filtered_entries =
-        FilterWindowedEntries(recordings, kind, &source_item_count);
+        FilterWindowedEntries(recordings, target, &source_item_count);
 
     CacheMetadata metadata = {};
-    metadata.window_days = kSummaryWindowDays;
+    // 0 signals "all time" for a topic summary, unlike Notes/Todos' fixed recent window.
+    metadata.window_days = target.kind == SummaryKind::kTopic ? 0 : kSummaryWindowDays;
     metadata.source_item_count = source_item_count;
     int transcript_count = 0;
     int missing_count = 0;
     const std::vector<SourceEntry> entries =
-        CollectSourceEntries(kind, filtered_entries, &transcript_count, &missing_count);
+        CollectSourceEntries(filtered_entries, &transcript_count, &missing_count);
     metadata.transcript_item_count = transcript_count;
     metadata.missing_transcript_item_count = missing_count;
     if (entries.empty()) {
@@ -843,13 +900,13 @@ GenerationResult GenerateSummary(SummaryKind kind)
              transcript_count, missing_count);
 
     std::vector<SourceEntry> trimmed_entries = entries;
-    std::string prompt = BuildPromptText(kind, trimmed_entries);
+    std::string prompt = BuildPromptText(target, trimmed_entries);
     size_t estimated_tokens = CountPromptTokens(prompt);
     while (estimated_tokens > static_cast<size_t>(kSummaryInputTokenBudget) &&
            trimmed_entries.size() > 1U) {
         metadata.truncated = true;
         trimmed_entries.erase(trimmed_entries.begin());
-        prompt = BuildPromptText(kind, trimmed_entries);
+        prompt = BuildPromptText(target, trimmed_entries);
         estimated_tokens = CountPromptTokens(prompt);
     }
 
@@ -857,7 +914,7 @@ GenerationResult GenerateSummary(SummaryKind kind)
         metadata.truncated = true;
         ESP_LOGI(kTag, "Summary using chunked map-reduce: tokens=%u budget=%d",
                  static_cast<unsigned>(estimated_tokens), kSummaryInputTokenBudget);
-        return GenerateChunkedSummary(kind, trimmed_entries, metadata);
+        return GenerateChunkedSummary(target, trimmed_entries, metadata);
     }
 
     ESP_LOGI(kTag, "Summary single-pass request: tokens=%u", static_cast<unsigned>(estimated_tokens));
@@ -891,55 +948,70 @@ void NotifyLocked()
     handler(event, context);
 }
 
-bool PersistSummary(SummaryKind kind, const GenerationResult& result)
+bool PersistSummary(const SummaryTarget& target, const GenerationResult& result)
 {
-    const std::string metadata_json = BuildMetadataJson(result.metadata, kind);
+    const std::string metadata_json = BuildMetadataJson(result.metadata, target.kind);
     SaveCacheContext context = {};
-    context.kind = kind;
+    context.target = target;
     context.text = &result.text;
     context.metadata_json = &metadata_json;
     (void)storage_service::RunWithMountedFilesystem(SaveCacheOnMountedFilesystem, &context);
     return context.saved;
 }
 
-void CompleteSummaryRequest(SummaryKind kind, const GenerationResult& result)
+void CompleteSummaryRequest(const SummaryTarget& target, const GenerationResult& result)
 {
     std::lock_guard<std::mutex> lock(s_mutex);
-    CacheEntrySnapshot* target = kind == SummaryKind::kTodos ? &s_snapshot.todos : &s_snapshot.notes;
+    CacheEntrySnapshot* cache_slot = nullptr;
+    switch (target.kind) {
+        case SummaryKind::kTodos:
+            cache_slot = &s_snapshot.todos;
+            break;
+        case SummaryKind::kTopic:
+            cache_slot = &s_snapshot.topic;
+            s_snapshot.topic_id = target.topic_id;
+            break;
+        case SummaryKind::kNotes:
+        case SummaryKind::kNone:
+        default:
+            cache_slot = &s_snapshot.notes;
+            break;
+    }
+    const std::string label = SegmentLabelForTarget(target);
     s_snapshot.request.in_flight = false;
-    s_snapshot.request.kind = kind;
+    s_snapshot.request.kind = target.kind;
+    s_snapshot.request.topic_id = target.topic_id;
     s_snapshot.request.phase = result.success ? RequestPhase::kSucceeded : RequestPhase::kFailed;
-    s_snapshot.request.status_message =
-        result.success ? std::string(SegmentLabelForKind(kind)) + " summary updated"
-                       : std::string("Unable to summarize ") + SegmentLabelForKind(kind);
+    s_snapshot.request.status_message = result.success ? label + " summary updated"
+                                                        : std::string("Unable to summarize ") + label;
     s_snapshot.request.error_code = result.error_code;
     s_snapshot.request.error_message = result.error_message;
     ++s_snapshot.request_generation;
-    if (result.success && target != nullptr) {
-        target->available = true;
-        target->text = result.text;
-        target->metadata = result.metadata;
+    if (result.success && cache_slot != nullptr) {
+        cache_slot->available = true;
+        cache_slot->text = result.text;
+        cache_slot->metadata = result.metadata;
     }
     if (result.success) {
-        ESP_LOGI(kTag, "Summary %s succeeded: chars=%u chunked=%d", SummaryKindName(kind),
+        ESP_LOGI(kTag, "Summary %s succeeded: chars=%u chunked=%d", label.c_str(),
                  static_cast<unsigned>(result.text.size()), result.metadata.chunked ? 1 : 0);
     } else {
-        ESP_LOGW(kTag, "Summary %s failed: code=%s message=%s", SummaryKindName(kind),
+        ESP_LOGW(kTag, "Summary %s failed: code=%s message=%s", label.c_str(),
                  result.error_code.empty() ? "<none>" : result.error_code.c_str(),
                  result.error_message.empty() ? "<none>" : result.error_message.c_str());
     }
     NotifyLocked();
 }
 
-void ProcessSummaryRequest(SummaryKind kind)
+void ProcessSummaryRequest(SummaryTarget target)
 {
-    GenerationResult result = GenerateSummary(kind);
-    if (result.success && !PersistSummary(kind, result)) {
+    GenerationResult result = GenerateSummary(target);
+    if (result.success && !PersistSummary(target, result)) {
         result.success = false;
         result.error_code = "summary_save_failed";
         result.error_message = "Unable to save summary to SD card";
     }
-    CompleteSummaryRequest(kind, result);
+    CompleteSummaryRequest(target, result);
 }
 
 }  // namespace
@@ -993,12 +1065,14 @@ void ResetForFormat()
     std::lock_guard<std::mutex> lock(s_mutex);
     // If the service was never initialized, its cache is only on the SD card the format just wiped;
     // a later Init() will read the empty card. If it was initialized, drop the in-memory summaries
-    // (Init() is one-shot, so it won't re-read) and notify so the Summarize page shows empty state.
+    // (Init() is one-shot, so it won't re-read) and notify so a summary screen shows empty state.
     if (!s_snapshot.initialized) {
         return;
     }
     s_snapshot.notes = {};
     s_snapshot.todos = {};
+    s_snapshot.topic = {};
+    s_snapshot.topic_id.clear();
     s_snapshot.storage_available = false;
     NotifyLocked();
 }
@@ -1008,6 +1082,7 @@ bool RequestSummary(SummaryKind kind)
     if (kind != SummaryKind::kNotes && kind != SummaryKind::kTodos) {
         return false;
     }
+    const SummaryTarget target = {.kind = kind};
 
     {
         std::lock_guard<std::mutex> lock(s_mutex);
@@ -1016,16 +1091,61 @@ bool RequestSummary(SummaryKind kind)
         }
         s_snapshot.request.in_flight = true;
         s_snapshot.request.kind = kind;
+        s_snapshot.request.topic_id.clear();
         s_snapshot.request.phase = RequestPhase::kStarted;
-        s_snapshot.request.status_message = std::string("Summarizing ") + SegmentLabelForKind(kind);
+        s_snapshot.request.status_message =
+            std::string("Summarizing ") + SegmentLabelForTarget(target);
         s_snapshot.request.error_code.clear();
         s_snapshot.request.error_message.clear();
         ++s_snapshot.request_generation;
         NotifyLocked();
     }
 
-    gemini_service::RunOnWorker([kind]() { ProcessSummaryRequest(kind); });
+    gemini_service::RunOnWorker([target]() { ProcessSummaryRequest(target); });
     return true;
+}
+
+bool RequestTopicSummary(const std::string& topic_id, const std::string& topic_name)
+{
+    if (topic_id.empty()) {
+        return false;
+    }
+    const SummaryTarget target = {
+        .kind = SummaryKind::kTopic,
+        .topic_id = topic_id,
+        .topic_name = topic_name,
+    };
+
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (!s_snapshot.initialized || s_snapshot.request.in_flight) {
+            return false;
+        }
+        s_snapshot.request.in_flight = true;
+        s_snapshot.request.kind = SummaryKind::kTopic;
+        s_snapshot.request.topic_id = topic_id;
+        s_snapshot.request.phase = RequestPhase::kStarted;
+        s_snapshot.request.status_message =
+            std::string("Summarizing ") + SegmentLabelForTarget(target);
+        s_snapshot.request.error_code.clear();
+        s_snapshot.request.error_message.clear();
+        ++s_snapshot.request_generation;
+        NotifyLocked();
+    }
+
+    gemini_service::RunOnWorker([target]() { ProcessSummaryRequest(target); });
+    return true;
+}
+
+CacheEntrySnapshot LoadTopicSummaryCache(const std::string& topic_id)
+{
+    if (topic_id.empty()) {
+        return {};
+    }
+    LoadTopicCacheContext context = {};
+    context.target = {.kind = SummaryKind::kTopic, .topic_id = topic_id};
+    (void)storage_service::RunWithMountedFilesystem(LoadTopicCacheOnMountedFilesystem, &context);
+    return context.topic;
 }
 
 const char* SummaryKindName(SummaryKind kind)
@@ -1035,6 +1155,8 @@ const char* SummaryKindName(SummaryKind kind)
             return "notes";
         case SummaryKind::kTodos:
             return "todos";
+        case SummaryKind::kTopic:
+            return "topic";
         case SummaryKind::kNone:
         default:
             return "none";

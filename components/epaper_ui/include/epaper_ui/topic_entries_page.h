@@ -20,6 +20,10 @@ struct TopicEntriesPageState {
     // Reached only from the Topics browse screen (picking a topic); Back returns there, not Home
     // -- the footer's Home icon still means literal Home, same split Details uses.
     ButtonState back_button = {};
+    // Opens the topic's summary screen. Hidden for an empty topic -- nothing to summarize yet --
+    // same optional-second-button shape as Details' Transcribe button.
+    bool show_summarize_button = false;
+    ButtonState summarize_button = {};
 
     bool operator==(const TopicEntriesPageState& other) const = default;
 };

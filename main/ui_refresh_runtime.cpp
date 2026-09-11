@@ -57,7 +57,7 @@ size_t SurfaceIndex(SurfaceKey key)
             return 8;
         case SurfaceKey::kTopicEntriesPage:
             return 9;
-        case SurfaceKey::kSummarizePage:
+        case SurfaceKey::kTopicSummaryPage:
             return 10;
         case SurfaceKey::kNotesPage:
             return 11;
@@ -103,8 +103,8 @@ const char* SurfaceName(SurfaceKey key)
             return "topics_browse_page";
         case SurfaceKey::kTopicEntriesPage:
             return "topic_entries_page";
-        case SurfaceKey::kSummarizePage:
-            return "summarize_page";
+        case SurfaceKey::kTopicSummaryPage:
+            return "topic_summary_page";
         case SurfaceKey::kNotesPage:
             return "notes_page";
         case SurfaceKey::kTodosPage:
@@ -150,7 +150,7 @@ const char* SurfaceNameForIndex(size_t index)
         case 9:
             return "topic_entries_page";
         case 10:
-            return "summarize_page";
+            return "topic_summary_page";
         case 11:
             return "notes_page";
         case 12:

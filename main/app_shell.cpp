@@ -46,7 +46,6 @@
 #include "status_bar_runtime.h"
 #include "todos_page_runtime.h"
 #include "storage_service.h"
-#include "summarize_page_runtime.h"
 #include "summary_service.h"
 #include "timezone_service.h"
 #include "topic_service.h"
@@ -59,6 +58,7 @@
 #include "timeline_format.h"
 #include "time_page_runtime.h"
 #include "topic_entries_page_runtime.h"
+#include "topic_summary_page_runtime.h"
 #include "topics_browse_page_runtime.h"
 #include "wifi_page_runtime.h"
 
@@ -428,29 +428,58 @@ void HandleTopicEntriesBackIfRequested()
     }
 }
 
-void HandleSummaryEvent(const summary_service::Event& event, void* context);
+void HandleTopicSummaryEvent(const summary_service::Event& event, void* context);
 
-esp_err_t ShowSummarizeScreen(display_service::RefreshMode refresh_mode)
+esp_err_t ShowTopicSummaryScreen(display_service::RefreshMode refresh_mode)
 {
-    SyncStatusBarState("show_summarize_screen");
-    page_input_runtime::ResetFocusForScreen(display_service::ScreenId::kSummarize);
-    footer_runtime::SetLayoutState(FooterLayoutForScreen(display_service::ScreenId::kSummarize));
-    footer_runtime::SetProjectionState(
-        page_input_runtime::BuildFooterProjectionForScreen(display_service::ScreenId::kSummarize));
+    SyncStatusBarState("show_topic_summary_screen");
+    // Lazily start the summary service (seeds its Notes/Todos cache from SD -- this screen's own
+    // topic cache is loaded on demand by SyncFromService below) and subscribe for updates.
+    (void)summary_service::Init();
+    summary_service::SetEventHandler(HandleTopicSummaryEvent, nullptr);
+    const esp_err_t sync_err = topic_summary_page_runtime::SyncFromService(false);
+    if (sync_err != ESP_OK && sync_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Topic summary page sync before show failed: %s", esp_err_to_name(sync_err));
+    }
+    page_input_runtime::ResetFocusForScreen(display_service::ScreenId::kTopicSummary);
+    footer_runtime::SetLayoutState(FooterLayoutForScreen(display_service::ScreenId::kTopicSummary));
+    footer_runtime::SetProjectionState(page_input_runtime::BuildFooterProjectionForScreen(
+        display_service::ScreenId::kTopicSummary));
     const esp_err_t footer_err = footer_runtime::UpdateDisplayState();
     if (footer_err != ESP_OK && footer_err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(kTag, "Footer sync before summarize screen failed: %s",
+        ESP_LOGW(kTag, "Footer sync before topic summary screen failed: %s",
                  esp_err_to_name(footer_err));
     }
-    // Lazily start the summary service (seeds its cache from SD) and subscribe for updates.
-    (void)summary_service::Init();
-    summary_service::SetEventHandler(HandleSummaryEvent, nullptr);
-    const esp_err_t sync_err = summarize_page_runtime::SyncFromService(false);
-    if (sync_err != ESP_OK && sync_err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(kTag, "Summarize page sync before show failed: %s", esp_err_to_name(sync_err));
+    return display_service::SetCurrentScreen(display_service::ScreenId::kTopicSummary, refresh_mode,
+                                             "show_topic_summary_screen");
+}
+
+// Open the summary screen for the topic requested via Topic Entries' Summarize button.
+void ShowTopicSummaryScreenIfRequested()
+{
+    const topic_entries_page_runtime::PendingTopicSummary pending =
+        topic_entries_page_runtime::ConsumePendingShowSummary();
+    if (!pending.valid) {
+        return;
     }
-    return display_service::SetCurrentScreen(display_service::ScreenId::kSummarize, refresh_mode,
-                                             "show_summarize_screen");
+    topic_summary_page_runtime::QueueShow(pending.topic_id, pending.topic_name);
+    const esp_err_t err = ShowTopicSummaryScreen(display_service::RefreshMode::kFull);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Show topic summary screen failed: %s", esp_err_to_name(err));
+    }
+}
+
+// Return from the Topic Summary screen to Topic Entries for the same topic -- this page's only
+// possible source, same reasoning as Topic Entries' own Back button.
+void HandleTopicSummaryBackIfRequested()
+{
+    if (!topic_summary_page_runtime::ConsumePendingBack()) {
+        return;
+    }
+    const esp_err_t err = ShowTopicEntriesScreen(display_service::RefreshMode::kFull);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(kTag, "Topic summary back navigation failed: %s", esp_err_to_name(err));
+    }
 }
 
 esp_err_t ShowNotesScreen(display_service::RefreshMode refresh_mode)
@@ -829,13 +858,6 @@ bool HandleDashboardMenuItem(int menu_index, void*)
         }
         return true;
     }
-    if (menu_index == static_cast<int>(epaper_ui::DashboardMenuItem::kSummarize)) {
-        const esp_err_t err = ShowSummarizeScreen(display_service::RefreshMode::kFull);
-        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-            ESP_LOGW(kTag, "Show summarize screen failed: %s", esp_err_to_name(err));
-        }
-        return true;
-    }
     if (menu_index == static_cast<int>(epaper_ui::DashboardMenuItem::kNotes)) {
         const esp_err_t err = ShowNotesScreen(display_service::RefreshMode::kFull);
         if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
@@ -1127,14 +1149,23 @@ void HandleRecordingSessionEvent(const recording_session_service::Event& event, 
     }
 }
 
-void HandleSummaryEvent(const summary_service::Event& event, void*)
+void HandleTopicSummaryEvent(const summary_service::Event& event, void*)
 {
     const summary_service::Snapshot& snapshot = event.snapshot;
     const summary_service::RequestSnapshot& request = snapshot.request;
+    if (request.kind != summary_service::SummaryKind::kTopic) {
+        // Nothing requests Notes/Todos summaries anymore; ignore a stray event of another kind.
+        return;
+    }
 
-    // Keep the summarize page's cached snapshot fresh; refresh it live only when it's on screen.
-    const bool page_active = ScreenActiveForRefresh(display_service::ScreenId::kSummarize);
-    (void)summarize_page_runtime::OnSummarySnapshot(snapshot, page_active);
+    // Keep the topic summary page's cached snapshot fresh, but only for the topic currently
+    // showing -- summary_service's EventHandler slot is shared, so a stale in-flight request for
+    // a different topic (e.g. backing out and reopening another topic's summary quickly) must not
+    // clobber what's on screen. Refresh live only when the page is actually on screen.
+    if (snapshot.topic_id == topic_summary_page_runtime::CurrentTopicId()) {
+        const bool page_active = ScreenActiveForRefresh(display_service::ScreenId::kTopicSummary);
+        (void)topic_summary_page_runtime::OnSummarySnapshot(snapshot, page_active);
+    }
 
     // Toast once per request transition (request_generation bumps on start/success/failure).
     bool new_transition = false;
@@ -1194,8 +1225,8 @@ void HandleStorageEvent(const storage_service::Event& event, void*)
                 break;
             case storage_service::OperationPhase::kSucceeded:
                 // The format wiped every recording and cached summary; reset both services so the
-                // dashboard badges/progress and the Summarize page don't render stale state when
-                // the user returns to them.
+                // dashboard badges/progress and the Topic Summary page don't render stale state
+                // when the user returns to them.
                 recording_archive_service::ResetForFormat();
                 summary_service::ResetForFormat();
                 overlay_err = overlay_runtime::ShowStorageModalFormatSuccess();
@@ -1532,6 +1563,8 @@ void HandleDispatchedButtonEvent(const button_service::ButtonEventInfo& event)
         ShowSettingsSubPageIfRequested();
         ShowTopicEntriesScreenIfRequested();
         HandleTopicEntriesBackIfRequested();
+        ShowTopicSummaryScreenIfRequested();
+        HandleTopicSummaryBackIfRequested();
         FlushOverlayFeedback();
         return;
     }
@@ -1800,8 +1833,8 @@ void HandleRecordingArchiveEvent(const recording_archive_service::Event& event, 
             // never the topic set, on an archive-changed event.
             page_err = topic_entries_page_runtime::SyncFromArchive(true);
             break;
-        case display_service::ScreenId::kSummarize:
-            page_err = summarize_page_runtime::SyncFromService(true);
+        case display_service::ScreenId::kTopicSummary:
+            page_err = topic_summary_page_runtime::SyncFromService(true);
             break;
         case display_service::ScreenId::kDetails:
             // Re-sync so a just-finished transcription replaces the empty state (and drops the

@@ -209,7 +209,8 @@ NavigationModel BuildDashboardPageNavigationModel()
     NavigationModel model = {};
     model.scope = NavigationScope::kDashboard;
 
-    for (int index = 0; index < 5; ++index) {
+    // Must match epaper_ui::kDashboardMenuItemCount (dashboard_page.h).
+    for (int index = 0; index < 4; ++index) {
         AddItem(model, NavigationItemSection::kDashboardPageMenu,
                 NavigationItemRole::kDashboardMenuItem, index);
     }
@@ -231,7 +232,8 @@ NavigationModel BuildTopicsBrowsePageNavigationModel(int topic_count)
     return model;
 }
 
-NavigationModel BuildTopicEntriesPageNavigationModel(int timeline_group_count)
+NavigationModel BuildTopicEntriesPageNavigationModel(int timeline_group_count,
+                                                     bool with_summarize)
 {
     NavigationModel model = {};
     model.scope = NavigationScope::kTopicEntries;
@@ -246,21 +248,27 @@ NavigationModel BuildTopicEntriesPageNavigationModel(int timeline_group_count)
     // single possible source.
     AddItem(model, NavigationItemSection::kTopicEntriesPageControls,
             NavigationItemRole::kTopicEntriesBackButton, 0);
+    // Summarize opens the topic's summary screen; only offered once there's at least one entry
+    // to summarize (empty topics have nothing to send to Gemini).
+    if (with_summarize) {
+        AddItem(model, NavigationItemSection::kTopicEntriesPageControls,
+                NavigationItemRole::kTopicEntriesSummarizeButton, 1);
+    }
     AddFooterItems(model, /*is_home_screen=*/false);
     return model;
 }
 
-NavigationModel BuildSummarizePageNavigationModel()
+NavigationModel BuildTopicSummaryPageNavigationModel()
 {
     NavigationModel model = {};
-    model.scope = NavigationScope::kSummarize;
+    model.scope = NavigationScope::kTopicSummary;
 
-    AddItem(model, NavigationItemSection::kSummarizePageControls,
-            NavigationItemRole::kSummarizePageSegmentControl, 0);
-    AddItem(model, NavigationItemSection::kSummarizePageControls,
-            NavigationItemRole::kSummarizePageScrollContainer, 1);
-    AddItem(model, NavigationItemSection::kSummarizePageControls,
-            NavigationItemRole::kSummarizePageGetSummaryButton, 2);
+    AddItem(model, NavigationItemSection::kTopicSummaryPageControls,
+            NavigationItemRole::kTopicSummaryPageScrollContainer, 0);
+    AddItem(model, NavigationItemSection::kTopicSummaryPageControls,
+            NavigationItemRole::kTopicSummaryPageBackButton, 1);
+    AddItem(model, NavigationItemSection::kTopicSummaryPageControls,
+            NavigationItemRole::kTopicSummaryPageGetSummaryButton, 2);
     AddFooterItems(model, /*is_home_screen=*/false);
     return model;
 }

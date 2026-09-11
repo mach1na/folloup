@@ -20,7 +20,7 @@
 #include "epaper_ui/notes_page.h"
 #include "epaper_ui/onboarding_page.h"
 #include "epaper_ui/sticky_note.h"
-#include "epaper_ui/summarize_page.h"
+#include "epaper_ui/topic_summary_page.h"
 #include "epaper_ui/todos_page.h"
 #include "epaper_ui/toast.h"
 #include "epaper_ui/wifi_page.h"
@@ -38,7 +38,7 @@ enum class ScreenId {
     kSettingsTopics,
     kTopicsBrowse,
     kTopicEntries,
-    kSummarize,
+    kTopicSummary,
     kNotes,
     kTodos,
     kFollowUp,
@@ -107,7 +107,7 @@ esp_err_t SetTimePageState(const epaper_ui::TimePageState& state);
 esp_err_t SetDashboardPageState(const epaper_ui::DashboardPageState& state);
 esp_err_t SetTopicsBrowsePageState(const epaper_ui::TopicsBrowsePageState& state);
 esp_err_t SetTopicEntriesPageState(const epaper_ui::TopicEntriesPageState& state);
-esp_err_t SetSummarizePageState(const epaper_ui::SummarizePageState& state);
+esp_err_t SetTopicSummaryPageState(const epaper_ui::TopicSummaryPageState& state);
 esp_err_t SetNotesPageState(const epaper_ui::NotesPageState& state);
 esp_err_t SetTodosPageState(const epaper_ui::TodosPageState& state);
 esp_err_t SetFollowUpPageState(const epaper_ui::FollowUpPageState& state);

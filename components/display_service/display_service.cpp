@@ -20,11 +20,11 @@
 #include "epaper_ui/follow_up_page.h"
 #include "epaper_ui/notes_page.h"
 #include "epaper_ui/onboarding_page.h"
-#include "epaper_ui/summarize_page.h"
 #include "epaper_ui/todos_page.h"
 #include "epaper_ui/time_page.h"
 #include "epaper_ui/topics_browse_page.h"
 #include "epaper_ui/topic_entries_page.h"
+#include "epaper_ui/topic_summary_page.h"
 #include "epaper_ui/wifi_page.h"
 #include "epaper_panel.h"
 #include "esp_check.h"
@@ -94,7 +94,7 @@ epaper_ui::TimePageState s_time_page_state = {};
 epaper_ui::DashboardPageState s_dashboard_page_state = {};
 epaper_ui::TopicsBrowsePageState s_topics_browse_page_state = {};
 epaper_ui::TopicEntriesPageState s_topic_entries_page_state = {};
-epaper_ui::SummarizePageState s_summarize_page_state = {};
+epaper_ui::TopicSummaryPageState s_topic_summary_page_state = {};
 epaper_ui::NotesPageState s_notes_page_state = {};
 epaper_ui::TodosPageState s_todos_page_state = {};
 epaper_ui::FollowUpPageState s_follow_up_page_state = {};
@@ -121,7 +121,7 @@ struct RenderSnapshot {
     epaper_ui::DashboardPageState dashboard_page = {};
     epaper_ui::TopicsBrowsePageState topics_browse_page = {};
     epaper_ui::TopicEntriesPageState topic_entries_page = {};
-    epaper_ui::SummarizePageState summarize_page = {};
+    epaper_ui::TopicSummaryPageState topic_summary_page = {};
     epaper_ui::NotesPageState notes_page = {};
     epaper_ui::TodosPageState todos_page = {};
     epaper_ui::FollowUpPageState follow_up_page = {};
@@ -200,7 +200,7 @@ const RenderSnapshot& CaptureRenderSnapshot()
     snapshot.dashboard_page = s_dashboard_page_state;
     snapshot.topics_browse_page = s_topics_browse_page_state;
     snapshot.topic_entries_page = s_topic_entries_page_state;
-    snapshot.summarize_page = s_summarize_page_state;
+    snapshot.topic_summary_page = s_topic_summary_page_state;
     snapshot.notes_page = s_notes_page_state;
     snapshot.todos_page = s_todos_page_state;
     snapshot.follow_up_page = s_follow_up_page_state;
@@ -482,18 +482,18 @@ void DrawTopicEntriesUnderlay(uint8_t* framebuffer, const RenderSnapshot& snapsh
                                     snapshot.global_footer);
 }
 
-void DrawSummarizeUnderlay(uint8_t* framebuffer, const RenderSnapshot& snapshot)
+void DrawTopicSummaryUnderlay(uint8_t* framebuffer, const RenderSnapshot& snapshot)
 {
     EpaperPanel& panel = Panel();
     panel.Clear(true);
-    epaper_ui::DrawSummarizePage(framebuffer,
-                                 WAVESHARE_EPD_WIDTH,
-                                 WAVESHARE_EPD_HEIGHT,
-                                 kPortraitWidth,
-                                 kPortraitHeight,
-                                 snapshot.summarize_page,
-                                 snapshot.status_bar,
-                                 snapshot.global_footer);
+    epaper_ui::DrawTopicSummaryPage(framebuffer,
+                                    WAVESHARE_EPD_WIDTH,
+                                    WAVESHARE_EPD_HEIGHT,
+                                    kPortraitWidth,
+                                    kPortraitHeight,
+                                    snapshot.topic_summary_page,
+                                    snapshot.status_bar,
+                                    snapshot.global_footer);
 }
 
 void DrawNotesUnderlay(uint8_t* framebuffer, const RenderSnapshot& snapshot)
@@ -856,11 +856,11 @@ esp_err_t ApplyTopicEntries(RefreshMode refresh_mode)
     return ESP_OK;
 }
 
-esp_err_t ApplySummarize(RefreshMode refresh_mode)
+esp_err_t ApplyTopicSummary(RefreshMode refresh_mode)
 {
     const RenderSnapshot& snapshot = CaptureRenderSnapshot();
     EpaperPanel& panel = Panel();
-    DrawSummarizeUnderlay(panel.framebuffer(), snapshot);
+    DrawTopicSummaryUnderlay(panel.framebuffer(), snapshot);
     CaptureUnderlaySnapshot(panel.framebuffer());
     DrawCurrentOverlays(panel.framebuffer(), snapshot);
 
@@ -869,7 +869,7 @@ esp_err_t ApplySummarize(RefreshMode refresh_mode)
     // the whole render means an async event arriving mid-transition sees the old
     // screen, skips merging into this refresh, and lands afterwards as a separate
     // partial-waveform drive over an image that was already correct.
-    s_current_screen.store(ScreenId::kSummarize, std::memory_order_relaxed);
+    s_current_screen.store(ScreenId::kTopicSummary, std::memory_order_relaxed);
     RefreshBusyGuard refresh_busy;
     const esp_err_t err = RefreshForMode(panel, refresh_mode);
     if (err != ESP_OK) {
@@ -1128,8 +1128,8 @@ esp_err_t RefreshCurrentScreenRegionLocked()
         case ScreenId::kTopicEntries:
             DrawTopicEntriesUnderlay(panel.framebuffer(), snapshot);
             break;
-        case ScreenId::kSummarize:
-            DrawSummarizeUnderlay(panel.framebuffer(), snapshot);
+        case ScreenId::kTopicSummary:
+            DrawTopicSummaryUnderlay(panel.framebuffer(), snapshot);
             break;
         case ScreenId::kNotes:
             DrawNotesUnderlay(panel.framebuffer(), snapshot);
@@ -1203,8 +1203,8 @@ esp_err_t RefreshCurrentScreenLocked(RefreshMode refresh_mode)
             return ApplyTopicsBrowse(refresh_mode);
         case ScreenId::kTopicEntries:
             return ApplyTopicEntries(refresh_mode);
-        case ScreenId::kSummarize:
-            return ApplySummarize(refresh_mode);
+        case ScreenId::kTopicSummary:
+            return ApplyTopicSummary(refresh_mode);
         case ScreenId::kNotes:
             return ApplyNotes(refresh_mode);
         case ScreenId::kTodos:
@@ -1333,8 +1333,8 @@ void DisplayTask(void*)
                 err = ApplyTopicsBrowse(command.refresh_request.refresh_mode);
             } else if (command.screen == ScreenId::kTopicEntries) {
                 err = ApplyTopicEntries(command.refresh_request.refresh_mode);
-            } else if (command.screen == ScreenId::kSummarize) {
-                err = ApplySummarize(command.refresh_request.refresh_mode);
+            } else if (command.screen == ScreenId::kTopicSummary) {
+                err = ApplyTopicSummary(command.refresh_request.refresh_mode);
             } else if (command.screen == ScreenId::kNotes) {
                 err = ApplyNotes(command.refresh_request.refresh_mode);
             } else if (command.screen == ScreenId::kTodos) {
@@ -1596,14 +1596,14 @@ esp_err_t SetTopicEntriesPageState(const epaper_ui::TopicEntriesPageState& state
     return ESP_OK;
 }
 
-esp_err_t SetSummarizePageState(const epaper_ui::SummarizePageState& state)
+esp_err_t SetTopicSummaryPageState(const epaper_ui::TopicSummaryPageState& state)
 {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
 
     std::lock_guard<std::mutex> lock(s_state_mutex);
-    s_summarize_page_state = state;
+    s_topic_summary_page_state = state;
     return ESP_OK;
 }
 
