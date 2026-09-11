@@ -13,6 +13,7 @@
 #include "device_sleep_service.h"
 #include "device_sleep_runtime.h"
 #include "display_service.h"
+#include "esp_app_desc.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
@@ -2051,6 +2052,7 @@ void InitDeviceSleepRuntime()
 
 void Run()
 {
+    ESP_LOGI(kTag, "Followup firmware version %s", esp_app_get_description()->version);
     ESP_ERROR_CHECK(power_service::EnablePowerHold());
     ConfirmPendingOtaImage();
     ESP_ERROR_CHECK(power_service::Init());

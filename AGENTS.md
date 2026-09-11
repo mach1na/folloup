@@ -14,3 +14,7 @@ feature loops, or business logic that a service/component should own.
 Do not automatically run builds in this repo. If the user explicitly instructs
 you to run a build, use the existing `build/` folder and do not create a new
 build folder.
+
+Followup uses Semantic Versioning (`docs/versioning.md`). Any fix or feature
+that changes firmware/webapp behavior bumps `version.txt` and adds a
+`CHANGELOG.md` entry as part of that same change.

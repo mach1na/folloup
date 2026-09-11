@@ -289,6 +289,10 @@ always take precedence over built-in sdkconfig credentials.
   stack unrelated work onto an existing branch or work directly on `main`
   (the user-manual and todo-cleanup docs-only pushes are the narrow,
   explicitly-requested exception, not the default).
+- Followup uses Semantic Versioning — see `docs/versioning.md`. Every fix or
+  feature branch that changes firmware/webapp behavior bumps `version.txt`
+  (MINOR for a feature, PATCH for a bug fix) and adds a `CHANGELOG.md` entry
+  under `## [Unreleased]` as part of that same change.
 - When a `docs/todo.md` item is resolved, move its entry to
   `docs/todo-archive.md` (verbatim, with a resolution note) as part of the
   same change that resolves it, rather than just deleting or checking it
