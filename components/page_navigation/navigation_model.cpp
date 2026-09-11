@@ -312,11 +312,13 @@ NavigationModel BuildDetailsPageNavigationModel(bool with_transcribe)
     AddItem(model, NavigationItemSection::kDetailsPageControls,
             NavigationItemRole::kDetailsPageScrollContainer, 0);
     AddItem(model, NavigationItemSection::kDetailsPageControls,
-            NavigationItemRole::kDetailsPageBackButton, 1);
+            NavigationItemRole::kDetailsPageEditTopicsButton, 1);
+    AddItem(model, NavigationItemSection::kDetailsPageControls,
+            NavigationItemRole::kDetailsPageBackButton, 2);
     // Audio-only recordings (no transcript yet) gain a Transcribe button to the right of Back.
     if (with_transcribe) {
         AddItem(model, NavigationItemSection::kDetailsPageControls,
-                NavigationItemRole::kDetailsPageTranscribeButton, 2);
+                NavigationItemRole::kDetailsPageTranscribeButton, 3);
     }
     AddFooterItems(model, /*is_home_screen=*/false);
     return model;

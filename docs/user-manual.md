@@ -203,10 +203,13 @@ Current — but the deleted audio does not come back.
 
 "View details" opens the full transcript for a recording, scrollable if
 it's long — select the scroll area and tilt the rocker to move through it
-in 10% steps. At the bottom:
+in 10% steps. Below that:
 
+- **Edit topics** opens a checklist of your [topics](#topics) — select
+  one to check or uncheck it, then select **Done** to save. Multiple
+  topics can be checked at once.
 - **Back** returns you to wherever you came from.
-- The second button is either **Play** (if a transcript exists) or
+- The last button is either **Play** (if a transcript exists) or
   **Transcribe** (if it doesn't yet). If the transcript exists but the
   audio file itself is gone (for example, after archiving, or if you
   removed files over USB), this button disappears entirely rather than

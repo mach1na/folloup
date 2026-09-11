@@ -36,6 +36,7 @@ void DetailsPageCoordinator::Show(const std::vector<RecordingEntry>& recordings)
     transcript_text_.clear();
     has_transcript_ = false;
     last_transcription_error_.clear();
+    topic_ids_.clear();
 
     if (!pending_recording_id_.empty()) {
         recording_id_ = pending_recording_id_;
@@ -60,6 +61,7 @@ void DetailsPageCoordinator::RefreshFromArchive(const std::vector<RecordingEntry
         transcript_text_.clear();
         has_transcript_ = false;
         last_transcription_error_.clear();
+        topic_ids_.clear();
     } else {
         ApplyEntry(*entry);
     }
@@ -147,6 +149,9 @@ epaper_ui::DetailsPageState DetailsPageCoordinator::BuildState() const
         IsRoleFocused(NavigationItemRole::kDetailsPageScrollContainer) || scroll_container_active_;
     state.scroll_container.active = scroll_container_active_;
     state.scroll_container.scroll_position_percent = scroll_position_percent_;
+    state.edit_topics_button.label_text = "Edit topics";
+    state.edit_topics_button.selected =
+        IsRoleFocused(NavigationItemRole::kDetailsPageEditTopicsButton);
     state.back_button.label_text = "Back";
     state.back_button.selected = IsRoleFocused(NavigationItemRole::kDetailsPageBackButton);
     // The primary action button sits beside Back: it plays the recording once a
@@ -182,6 +187,7 @@ void DetailsPageCoordinator::ApplyEntry(const RecordingEntry& entry)
     has_audio_file_ = entry.has_audio_file;
     transcript_text_ = transcript;
     last_transcription_error_ = entry.metadata.last_transcription_error;
+    topic_ids_ = entry.metadata.topic_ids;
     // "Details" (this page's own fallback title) when there's no date at all, rather than
     // timeline_format::FormatDateLabel's own "Today" fallback for that case.
     title_text_ = entry.metadata.created_local_date.empty()

@@ -2,6 +2,7 @@
 #define DETAILS_PAGE_RUNTIME_H_
 
 #include <string>
+#include <vector>
 
 #include "app_interaction_target.h"
 #include "details_page_coordinator.h"
@@ -48,6 +49,13 @@ void RequestPlay();
 
 // Leave the entered scroll container (DOWN double-click). Returns true if it was active.
 bool ExitActiveControl();
+
+// Opens the topic multi-select for the current recording, pre-checked with its existing topics.
+// A no-op (with a brief toast) if topic_service has no topics yet.
+void ShowEditTopicsModal();
+// Routed from app_shell's select-modal-submit dispatch chain. Returns false (not consumed)
+// unless this page's own "Edit topics" modal was the one open.
+bool HandleTopicsSelectionSubmit(const std::vector<bool>& checked_items);
 
 }  // namespace details_page_runtime
 

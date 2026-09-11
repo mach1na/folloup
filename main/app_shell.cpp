@@ -1367,7 +1367,9 @@ void HandleDispatchedButtonEvent(const button_service::ButtonEventInfo& event)
             !settings_todos_page_runtime::HandleSelectModalSubmit(
                 overlay_result.select_modal_selected_index) &&
             !settings_topics_page_runtime::HandleItemActionSelection(
-                overlay_result.select_modal_selected_index)) {
+                overlay_result.select_modal_selected_index) &&
+            !details_page_runtime::HandleTopicsSelectionSubmit(
+                overlay_result.select_modal_checked_items)) {
             (void)recording_session_service::SubmitTagSelection(
                 overlay_result.select_modal_selected_index);
         }

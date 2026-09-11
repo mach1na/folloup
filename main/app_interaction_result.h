@@ -2,6 +2,7 @@
 #define APP_INTERACTION_RESULT_H_
 
 #include <cstdint>
+#include <vector>
 
 namespace app_interaction {
 
@@ -25,6 +26,10 @@ struct InputResult {
     bool request_delete_topic = false;
     bool select_modal_submitted = false;
     int select_modal_selected_index = -1;
+    // Populated only when the submitted modal was multi_select -- the final checked state of
+    // each item, indexed the same as SelectModalState::items. Empty for a normal single-select
+    // submission.
+    std::vector<bool> select_modal_checked_items = {};
 };
 
 }  // namespace app_interaction

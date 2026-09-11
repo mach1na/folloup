@@ -148,6 +148,11 @@ bool MarkRecordingFollowUp(const std::string& recording_id, bool follow_up,
                            bool follow_up_completed);
 // Change a recording's tag (e.g. turn a Note into a Task) and re-aggregate the archive counts.
 bool UpdateRecordingTag(const std::string& recording_id, RecordingTag tag);
+// Replaces a recording's set of topic ids wholesale (e.g. from the Details page's "Edit topics"
+// multi-select). Does not validate the ids against topic_service's current registry -- readers
+// already treat an id with no matching registry entry as simply absent (see topic_service.h), so
+// an orphaned id here is harmless. Does not affect archive counts, so no re-aggregation.
+bool SetRecordingTopics(const std::string& recording_id, const std::vector<std::string>& topic_ids);
 // Ends the one automatic retry attempt for a note whose transcription failed: clears the
 // pending flag but leaves has_transcript false so the manual "Transcribe" button still shows.
 bool ClearPendingTranscription(const std::string& recording_id);

@@ -851,6 +851,8 @@ struct MutateContext {
     bool pending_transcription = false;
     bool set_transcription_error = false;
     std::string transcription_error = {};
+    bool set_topic_ids = false;
+    std::vector<std::string> topic_ids = {};
     bool applied = false;
 };
 
@@ -904,6 +906,9 @@ esp_err_t MutateMetadataOnMountedFilesystem(const char* mount_point, void* conte
     }
     if (mutate->set_transcription_error) {
         metadata.last_transcription_error = mutate->transcription_error;
+    }
+    if (mutate->set_topic_ids) {
+        metadata.topic_ids = mutate->topic_ids;
     }
 
     const std::string updated = SerializeMetadata(metadata);
@@ -1599,6 +1604,19 @@ bool UpdateRecordingTag(const std::string& recording_id, RecordingTag tag)
         // Re-aggregate so the tag move (e.g. Note -> Task) is reflected in the dashboard counts.
         (void)Refresh();
     }
+    return context.applied;
+}
+
+bool SetRecordingTopics(const std::string& recording_id, const std::vector<std::string>& topic_ids)
+{
+    if (recording_id.empty()) {
+        return false;
+    }
+    MutateContext context = {};
+    context.recording_id = recording_id.c_str();
+    context.set_topic_ids = true;
+    context.topic_ids = topic_ids;
+    (void)storage_service::RunWithMountedFilesystem(MutateMetadataOnMountedFilesystem, &context);
     return context.applied;
 }
 

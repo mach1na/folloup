@@ -18,6 +18,8 @@ struct DetailsPageState {
     std::string title_text = "Details";
     ListItemHeaderState recording_header = {};
     ScrollContainerState scroll_container = {};
+    // Always shown, in its own row above Back/Transcribe -- opens the topic multi-select.
+    ButtonState edit_topics_button = {};
     ButtonState back_button = {};
     // Audio-only recordings (no transcript yet) show a primary Transcribe button beside a secondary
     // Back button; otherwise Back is the sole, full-width primary action.
