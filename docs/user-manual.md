@@ -17,7 +17,7 @@ that no longer apply — this manual is the accurate reference.
 - [The Home screen](#the-home-screen)
 - [Notes, Todos, and Follow-up](#notes-todos-and-follow-up)
 - [Viewing a recording's details](#viewing-a-recordings-details)
-- [Vibe Check](#vibe-check)
+- [Topics](#topics)
 - [Summarize](#summarize)
 - [Settings](#settings)
 - [Locking, sleep, and battery](#locking-sleep-and-battery)
@@ -98,8 +98,7 @@ This is the core interaction:
    - **Task** — something to do. (This is what shows up on the **Todos**
      screen — the tag itself is called "Task," even though the screen
      that lists them is called "Todos.")
-   - **Idea** — something to mull over later. Ideas are also what the
-     [Vibe Check](#vibe-check) screen surfaces for triage.
+   - **Idea** — something to mull over later.
    - **Topic** — doesn't save a note at all. Folloup transcribes what
      you said, distills it into a short name, and adds it as a new
      [topic](#topics) (e.g. hold Record, say "kitchen renovation," pick
@@ -134,7 +133,7 @@ Below that is the main menu, in this order:
 - **Follow up** — anything you've flagged for later, regardless of what
   it's tagged as (badge shows how many).
 - **Summarize** — Gemini-generated summaries of your Notes or Todos.
-- **Vibe check** — a quick way to triage your Ideas one at a time.
+- **Topics** — browse everything tagged with a given [topic](#topics).
 - **Notes** (badge shows how many) — your Note and Idea recordings.
 - **Todos** (badge shows how many) — your Task recordings.
 
@@ -215,24 +214,24 @@ in 10% steps. Below that:
   removed files over USB), this button disappears entirely rather than
   offering to play nothing.
 
-## Vibe Check
+## Topics
 
-Vibe Check is a one-at-a-time triage flow for your **Ideas** — specifically
-the ones you haven't already flagged as a follow-up. A progress readout at
-the top shows how many are left ("`remaining`/`initial` ideas").
+Topics are labels — a project name, say — you can attach to any Note, Idea,
+or Todo, independent of its type (see [Recording a
+thought](#recording-a-thought) for creating one by voice, and [Manage
+topics](#manage-topics) for renaming/deleting one). The Home screen's
+**Topics** item is where you browse by them:
 
-For the idea currently on screen, you can:
+1. Select a topic from the list.
+2. You'll see everything tagged with it — Notes, Ideas, and Todos mixed
+   together — grouped by day, the same way the Notes/Todos/Follow-up
+   screens group their own timelines. Each row shows which type it is
+   (Note/Idea/Task) so you can tell them apart.
+3. Select an entry to open its [Details](#viewing-a-recordings-details).
+4. **Back** returns you to the topic list.
 
-- **Refresh** — skip to a different random idea, leaving this one as-is.
-- **Check** — pin this idea as a follow-up (it'll then show up on the
-  Follow-up screen, and drop out of the Vibe Check queue).
-- **Close** — **permanently delete** this idea. This isn't a "skip" —
-  treat it like the Delete action elsewhere.
-- **Transcribe** (star icon, only for audio-only ideas) — transcribe it
-  before deciding.
-
-When you've gone through everything, or haven't recorded any Ideas yet,
-you'll see "No ideas captured yet."
+If a topic has nothing tagged with it yet, you'll see "No entries tagged
+with this topic yet."
 
 ## Summarize
 
@@ -306,12 +305,12 @@ Todos](#archiving-completed-todos)). Choices are 7, 14, 30, 60, or 90
 days, or **Never** to turn off automatic archiving entirely (you can
 still archive individual items manually). Default is 7 days.
 
-### Topics
+### Manage topics
 
-A list of your topics — labels you can use to group notes, ideas, and
-todos across a project, independent of their Note/Idea/Todo type. Three
-are there from the start (**Home**, **Car**, **Shopping**) so the list
-isn't empty on first boot; rename or delete them like any topic you add
+Create, rename, and delete [topics](#topics) — labels you can use to group
+notes, ideas, and todos across a project, independent of their Note/Idea/Todo
+type. Three are there from the start (**Home**, **Car**, **Shopping**) so the
+list isn't empty on first boot; rename or delete them like any topic you add
 yourself. You can also create a topic by voice without coming here at
 all — see the **Topic** tag option in [Recording a
 thought](#recording-a-thought).
@@ -382,7 +381,5 @@ percentage and a charging indicator while power is connected.
   readable in the Archived view; only its audio goes away, and only after
   it's already been marked complete for a while (or you archive it
   yourself).
-- **Vibe Check's Close is permanent** — it deletes the idea, it doesn't
-  just dismiss it from the list.
 - **A locked, sleeping screen isn't broken** — e-paper stays on whatever
   it last drew when it sleeps; that's expected, not a bug.

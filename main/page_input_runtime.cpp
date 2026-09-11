@@ -29,9 +29,11 @@
 #include "summarize_page_runtime.h"
 #include "time_page_interactions.h"
 #include "time_page_runtime.h"
+#include "topic_entries_page_interactions.h"
+#include "topic_entries_page_runtime.h"
+#include "topics_browse_page_interactions.h"
+#include "topics_browse_page_runtime.h"
 #include "ui_refresh_runtime.h"
-#include "vibe_check_page_interactions.h"
-#include "vibe_check_page_runtime.h"
 #include "wifi_page_interactions.h"
 #include "wifi_page_runtime.h"
 #include "wifi_service.h"
@@ -904,9 +906,11 @@ FocusMoveResult ApplyDashboardMoveResult(const page_actions::FocusMoveOutcome& o
     return result;
 }
 
-esp_err_t ApplyVibeCheckPageAndFooterDisplayState()
+// --- Topics browse page ------------------------------------------------------
+
+esp_err_t ApplyTopicsBrowsePageAndFooterDisplayState()
 {
-    const esp_err_t page_err = vibe_check_page_runtime::UpdateDisplayState();
+    const esp_err_t page_err = topics_browse_page_runtime::UpdateDisplayState();
     if (page_err != ESP_OK && page_err != ESP_ERR_INVALID_STATE) {
         return page_err;
     }
@@ -917,18 +921,19 @@ esp_err_t ApplyVibeCheckPageAndFooterDisplayState()
     return page_err != ESP_OK ? page_err : footer_err;
 }
 
-void ApplyVibeCheckPageStateUpdate(const display_service::RefreshRequest& refresh_request)
+void ApplyTopicsBrowsePageStateUpdate(const display_service::RefreshRequest& refresh_request)
 {
-    (void)vibe_check_page_runtime::UpdateDisplayStateAndRequestRefresh(refresh_request);
+    (void)topics_browse_page_runtime::UpdateDisplayStateAndRequestRefresh(refresh_request);
 }
 
-void ApplyVibeCheckFocusUpdate(const page_actions::FocusUpdateOutcome& outcome)
+void ApplyTopicsBrowseFocusUpdate(const page_actions::FocusUpdateOutcome& outcome)
 {
     if (!outcome.handled) {
         return;
     }
     if (outcome.sync_footer_projection) {
-        footer_runtime::SetProjectionState(vibe_check_page_runtime::BuildFooterProjectionState());
+        footer_runtime::SetProjectionState(
+            topics_browse_page_runtime::BuildFooterProjectionState());
     }
     if (outcome.apply_page_state) {
         const display_service::RefreshRequest refresh_request = {
@@ -936,17 +941,17 @@ void ApplyVibeCheckFocusUpdate(const page_actions::FocusUpdateOutcome& outcome)
             .scope = display_service::RefreshScope::kRegion,
         };
         if (outcome.sync_footer_projection) {
-            (void)ui_refresh_runtime::Schedule(ui_refresh_runtime::SurfaceKey::kVibeCheckPage,
-                                               &ApplyVibeCheckPageAndFooterDisplayState,
+            (void)ui_refresh_runtime::Schedule(ui_refresh_runtime::SurfaceKey::kTopicsBrowsePage,
+                                               &ApplyTopicsBrowsePageAndFooterDisplayState,
                                                refresh_request);
             return;
         }
-        ApplyVibeCheckPageStateUpdate(refresh_request);
+        ApplyTopicsBrowsePageStateUpdate(refresh_request);
     }
 }
 
-ButtonResult ApplyVibeCheckActivateResult(
-    const vibe_check_page_interactions::ActivateResult& activation)
+ButtonResult ApplyTopicsBrowseActivateResult(
+    const topics_browse_page_interactions::ActivateResult& activation)
 {
     ButtonResult result = {};
     if (!activation.handled) {
@@ -956,25 +961,14 @@ ButtonResult ApplyVibeCheckActivateResult(
     result.handled = true;
     result.interaction_result = MakeConsumedResult(activation.play_activate_cue);
 
-    vibe_check_page_interactions::ActivateCallbacks callbacks = {};
+    topics_browse_page_interactions::ActivateCallbacks callbacks = {};
     callbacks.show_home = [&result]() {
         result.footer_item = footer_runtime::FooterFocusItem::kHome;
     };
-    callbacks.show_settings = [&result]() {
-        result.footer_item = footer_runtime::FooterFocusItem::kSettings;
+    callbacks.select_topic = []() {
+        topics_browse_page_runtime::RequestShowEntriesForFocusedTopic();
     };
-    callbacks.show_wifi = [&result]() {
-        result.footer_item = footer_runtime::FooterFocusItem::kWifi;
-    };
-    callbacks.show_time = [&result]() {
-        result.footer_item = footer_runtime::FooterFocusItem::kTime;
-    };
-    callbacks.enter_card = []() { vibe_check_page_runtime::EnterFocusedCard(); };
-    callbacks.refresh_idea = []() { vibe_check_page_runtime::RefreshIdea(); };
-    callbacks.delete_idea = []() { vibe_check_page_runtime::DeleteCurrentIdea(); };
-    callbacks.pin_idea = []() { vibe_check_page_runtime::PinCurrentIdea(); };
-    callbacks.transcribe_idea = []() { vibe_check_page_runtime::TranscribeCurrentIdea(); };
-    vibe_check_page_interactions::ApplyPrimaryActivateResult(activation, callbacks);
+    topics_browse_page_interactions::ApplyPrimaryActivateResult(activation, callbacks);
     if (result.footer_item != footer_runtime::FooterFocusItem::kNone) {
         result.interaction_result.play_feedback = false;
         result.interaction_result.feedback_cue = app_interaction::FeedbackCue::kNone;
@@ -982,7 +976,7 @@ ButtonResult ApplyVibeCheckActivateResult(
     return result;
 }
 
-FocusMoveResult ApplyVibeCheckMoveResult(const page_actions::FocusMoveOutcome& outcome)
+FocusMoveResult ApplyTopicsBrowseMoveResult(const page_actions::FocusMoveOutcome& outcome)
 {
     FocusMoveResult result = {};
     if (!outcome.handled) {
@@ -990,7 +984,7 @@ FocusMoveResult ApplyVibeCheckMoveResult(const page_actions::FocusMoveOutcome& o
     }
     result.handled = true;
     result.interaction_result = MakeConsumedResult(outcome.play_navigation_cue);
-    ApplyVibeCheckFocusUpdate({
+    ApplyTopicsBrowseFocusUpdate({
         .handled = outcome.handled,
         .apply_page_state = outcome.apply_page_state,
         .sync_footer_projection = outcome.sync_footer_projection,
@@ -998,14 +992,132 @@ FocusMoveResult ApplyVibeCheckMoveResult(const page_actions::FocusMoveOutcome& o
     return result;
 }
 
-ButtonResult HandleVibeCheckButtonEvent(const button_service::ButtonEventInfo& event)
+ButtonResult HandleTopicsBrowseButtonEvent(const button_service::ButtonEventInfo& event)
+{
+    ButtonResult result = {};
+    if (!button_service::IsPrimaryButton(event.button)) {
+        return result;
+    }
+
+    switch (event.event) {
+        case button_service::ButtonEvent::kSingleClick:
+            return ApplyTopicsBrowseActivateResult(
+                topics_browse_page_runtime::ActivateFocusedItem());
+        case button_service::ButtonEvent::kPressDown:
+        case button_service::ButtonEvent::kPressUp:
+        case button_service::ButtonEvent::kPressRepeat:
+        case button_service::ButtonEvent::kLongPressStart:
+        case button_service::ButtonEvent::kLongPressUp:
+            result.handled = true;
+            result.interaction_result.consumed = true;
+            return result;
+        case button_service::ButtonEvent::kDoubleClick:
+        default:
+            return result;
+    }
+}
+
+// --- Topic entries page ------------------------------------------------------
+
+esp_err_t ApplyTopicEntriesPageAndFooterDisplayState()
+{
+    const esp_err_t page_err = topic_entries_page_runtime::UpdateDisplayState();
+    if (page_err != ESP_OK && page_err != ESP_ERR_INVALID_STATE) {
+        return page_err;
+    }
+    const esp_err_t footer_err = footer_runtime::UpdateDisplayState();
+    if (footer_err != ESP_OK && footer_err != ESP_ERR_INVALID_STATE) {
+        return footer_err;
+    }
+    return page_err != ESP_OK ? page_err : footer_err;
+}
+
+void ApplyTopicEntriesPageStateUpdate(const display_service::RefreshRequest& refresh_request)
+{
+    (void)topic_entries_page_runtime::UpdateDisplayStateAndRequestRefresh(refresh_request);
+}
+
+void ApplyTopicEntriesFocusUpdate(const page_actions::FocusUpdateOutcome& outcome)
+{
+    if (!outcome.handled) {
+        return;
+    }
+    if (outcome.sync_footer_projection) {
+        footer_runtime::SetProjectionState(
+            topic_entries_page_runtime::BuildFooterProjectionState());
+    }
+    if (outcome.apply_page_state) {
+        const display_service::RefreshRequest refresh_request = {
+            .refresh_mode = display_service::RefreshMode::kPartial,
+            .scope = display_service::RefreshScope::kRegion,
+        };
+        if (outcome.sync_footer_projection) {
+            (void)ui_refresh_runtime::Schedule(ui_refresh_runtime::SurfaceKey::kTopicEntriesPage,
+                                               &ApplyTopicEntriesPageAndFooterDisplayState,
+                                               refresh_request);
+            return;
+        }
+        ApplyTopicEntriesPageStateUpdate(refresh_request);
+    }
+}
+
+ButtonResult ApplyTopicEntriesActivateResult(
+    const topic_entries_page_interactions::ActivateResult& activation)
+{
+    ButtonResult result = {};
+    if (!activation.handled) {
+        return result;
+    }
+    result.handled = true;
+    result.interaction_result = MakeConsumedResult(activation.play_activate_cue);
+
+    // Entering a group mutates page state inside HandlePrimaryActivate; repaint here.
+    if (activation.apply_page_state) {
+        ApplyTopicEntriesPageStateUpdate({
+            .refresh_mode = display_service::RefreshMode::kPartial,
+            .scope = display_service::RefreshScope::kRegion,
+        });
+    }
+
+    topic_entries_page_interactions::ActivateCallbacks callbacks = {};
+    callbacks.show_home = [&result]() {
+        result.footer_item = footer_runtime::FooterFocusItem::kHome;
+    };
+    // Deferred so the screen change happens after input dispatch; app_shell polls for it.
+    callbacks.show_back = []() { topic_entries_page_runtime::RequestBack(); };
+    callbacks.view_details = []() { topic_entries_page_runtime::RequestViewDetails(); };
+    topic_entries_page_interactions::ApplyPrimaryActivateResult(activation, callbacks);
+    if (result.footer_item != footer_runtime::FooterFocusItem::kNone) {
+        result.interaction_result.play_feedback = false;
+        result.interaction_result.feedback_cue = app_interaction::FeedbackCue::kNone;
+    }
+    return result;
+}
+
+FocusMoveResult ApplyTopicEntriesMoveResult(const page_actions::FocusMoveOutcome& outcome)
+{
+    FocusMoveResult result = {};
+    if (!outcome.handled) {
+        return result;
+    }
+    result.handled = true;
+    result.interaction_result = MakeConsumedResult(outcome.play_navigation_cue);
+    ApplyTopicEntriesFocusUpdate({
+        .handled = outcome.handled,
+        .apply_page_state = outcome.apply_page_state,
+        .sync_footer_projection = outcome.sync_footer_projection,
+    });
+    return result;
+}
+
+ButtonResult HandleTopicEntriesButtonEvent(const button_service::ButtonEventInfo& event)
 {
     ButtonResult result = {};
 
-    // No dedicated back key: holding DOWN leaves the card's action row.
+    // App-wide gesture: holding DOWN exits an entered item list.
     if (event.button == button_service::ButtonId::kDown &&
         event.event == button_service::ButtonEvent::kLongPressStart) {
-        if (vibe_check_page_runtime::ExitFocusedCard()) {
+        if (topic_entries_page_runtime::ExitActiveControl()) {
             result.handled = true;
             result.interaction_result = MakeConsumedResult(true);
         }
@@ -1018,7 +1130,8 @@ ButtonResult HandleVibeCheckButtonEvent(const button_service::ButtonEventInfo& e
 
     switch (event.event) {
         case button_service::ButtonEvent::kSingleClick:
-            return ApplyVibeCheckActivateResult(vibe_check_page_runtime::ActivateFocusedItem());
+            return ApplyTopicEntriesActivateResult(
+                topic_entries_page_runtime::ActivateFocusedItem());
         case button_service::ButtonEvent::kPressDown:
         case button_service::ButtonEvent::kPressUp:
         case button_service::ButtonEvent::kPressRepeat:
@@ -1895,8 +2008,10 @@ footer_runtime::ProjectionState BuildFooterProjectionForScreen(display_service::
             return time_page_runtime::BuildFooterProjectionState();
         case display_service::ScreenId::kHome:
             return dashboard_page_runtime::BuildFooterProjectionState();
-        case display_service::ScreenId::kVibeCheck:
-            return vibe_check_page_runtime::BuildFooterProjectionState();
+        case display_service::ScreenId::kTopicsBrowse:
+            return topics_browse_page_runtime::BuildFooterProjectionState();
+        case display_service::ScreenId::kTopicEntries:
+            return topic_entries_page_runtime::BuildFooterProjectionState();
         case display_service::ScreenId::kSummarize:
             return summarize_page_runtime::BuildFooterProjectionState();
         case display_service::ScreenId::kNotes:
@@ -1937,8 +2052,11 @@ void ResetFocusForScreen(display_service::ScreenId screen)
         case display_service::ScreenId::kHome:
             dashboard_page_runtime::ResetFocus();
             return;
-        case display_service::ScreenId::kVibeCheck:
-            vibe_check_page_runtime::ResetFocus();
+        case display_service::ScreenId::kTopicsBrowse:
+            topics_browse_page_runtime::ResetFocus();
+            return;
+        case display_service::ScreenId::kTopicEntries:
+            topic_entries_page_runtime::ResetFocus();
             return;
         case display_service::ScreenId::kSummarize:
             summarize_page_runtime::ResetFocus();
@@ -1981,8 +2099,10 @@ FocusMoveResult MoveFocusForCurrentScreen(int delta, bool page_jump)
             return ApplyTimeMoveResult(time_page_runtime::MoveFocus(delta));
         case display_service::ScreenId::kHome:
             return ApplyDashboardMoveResult(dashboard_page_runtime::MoveFocus(delta));
-        case display_service::ScreenId::kVibeCheck:
-            return ApplyVibeCheckMoveResult(vibe_check_page_runtime::MoveFocus(delta));
+        case display_service::ScreenId::kTopicsBrowse:
+            return ApplyTopicsBrowseMoveResult(topics_browse_page_runtime::MoveFocus(delta));
+        case display_service::ScreenId::kTopicEntries:
+            return ApplyTopicEntriesMoveResult(topic_entries_page_runtime::MoveFocus(delta));
         case display_service::ScreenId::kSummarize:
             return ApplySummarizeMoveResult(summarize_page_runtime::MoveFocus(delta));
         case display_service::ScreenId::kNotes:
@@ -2019,8 +2139,10 @@ ButtonResult HandleButtonEventForScreen(display_service::ScreenId screen,
             return HandleTimeButtonEvent(event);
         case display_service::ScreenId::kHome:
             return HandleDashboardButtonEvent(event);
-        case display_service::ScreenId::kVibeCheck:
-            return HandleVibeCheckButtonEvent(event);
+        case display_service::ScreenId::kTopicsBrowse:
+            return HandleTopicsBrowseButtonEvent(event);
+        case display_service::ScreenId::kTopicEntries:
+            return HandleTopicEntriesButtonEvent(event);
         case display_service::ScreenId::kSummarize:
             return HandleSummarizeButtonEvent(event);
         case display_service::ScreenId::kNotes:

@@ -16,7 +16,7 @@ constexpr int kMiddleMenuGap = design::spacing::k8;
 constexpr auto kProgressLabelRole = design::TypographyRole::kLabelSmallBlack;
 
 constexpr std::array<const char*, kDashboardMenuItemCount> kMenuLabels = {
-    "Follow up", "Summarize", "Vibe check", "Notes", "Todos",
+    "Follow up", "Summarize", "Topics", "Notes", "Todos",
 };
 
 int PageWidth(int portrait_width)

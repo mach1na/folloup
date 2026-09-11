@@ -12,7 +12,8 @@ enum class NavigationScope : uint8_t {
     kWifi,
     kTime,
     kDashboard,
-    kVibeCheck,
+    kTopicsBrowse,
+    kTopicEntries,
     kSummarize,
     kNotes,
     kTodos,
@@ -31,7 +32,9 @@ enum class NavigationItemSection : uint8_t {
     kWifiPageControls,
     kTimePageControls,
     kDashboardPageMenu,
-    kVibeCheckPageControls,
+    kTopicsBrowsePageControls,
+    kTopicEntriesPageTimelineGroups,
+    kTopicEntriesPageControls,
     kSummarizePageControls,
     kNotesPageTimelineGroups,
     kTodosPageControls,
@@ -83,7 +86,9 @@ enum class NavigationItemRole : uint8_t {
     kSettingsTopicsNewTopicButton,
     kSettingsTopicsBackButton,
     kDashboardMenuItem,
-    kVibeCheckPageCard,
+    kTopicsBrowseTopicRow,
+    kTopicEntriesTimelineGroup,
+    kTopicEntriesBackButton,
     kSummarizePageSegmentControl,
     kSummarizePageScrollContainer,
     kSummarizePageGetSummaryButton,
@@ -123,7 +128,8 @@ NavigationModel BuildSettingsStoragePageNavigationModel();
 NavigationModel BuildSettingsTodosPageNavigationModel();
 NavigationModel BuildSettingsTopicsPageNavigationModel(int topic_count);
 NavigationModel BuildDashboardPageNavigationModel();
-NavigationModel BuildVibeCheckPageNavigationModel();
+NavigationModel BuildTopicsBrowsePageNavigationModel(int topic_count);
+NavigationModel BuildTopicEntriesPageNavigationModel(int timeline_group_count);
 NavigationModel BuildSummarizePageNavigationModel();
 NavigationModel BuildNotesPageNavigationModel(int timeline_group_count);
 NavigationModel BuildTodosPageNavigationModel(int timeline_group_count);

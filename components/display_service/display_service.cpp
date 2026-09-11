@@ -23,7 +23,8 @@
 #include "epaper_ui/summarize_page.h"
 #include "epaper_ui/todos_page.h"
 #include "epaper_ui/time_page.h"
-#include "epaper_ui/vibe_check_page.h"
+#include "epaper_ui/topics_browse_page.h"
+#include "epaper_ui/topic_entries_page.h"
 #include "epaper_ui/wifi_page.h"
 #include "epaper_panel.h"
 #include "esp_check.h"
@@ -91,7 +92,8 @@ epaper_ui::SettingsTopicsPageState s_settings_topics_page_state = {};
 epaper_ui::WifiPageState s_wifi_page_state = {};
 epaper_ui::TimePageState s_time_page_state = {};
 epaper_ui::DashboardPageState s_dashboard_page_state = {};
-epaper_ui::VibeCheckPageState s_vibe_check_page_state = {};
+epaper_ui::TopicsBrowsePageState s_topics_browse_page_state = {};
+epaper_ui::TopicEntriesPageState s_topic_entries_page_state = {};
 epaper_ui::SummarizePageState s_summarize_page_state = {};
 epaper_ui::NotesPageState s_notes_page_state = {};
 epaper_ui::TodosPageState s_todos_page_state = {};
@@ -117,7 +119,8 @@ struct RenderSnapshot {
     epaper_ui::WifiPageState wifi_page = {};
     epaper_ui::TimePageState time_page = {};
     epaper_ui::DashboardPageState dashboard_page = {};
-    epaper_ui::VibeCheckPageState vibe_check_page = {};
+    epaper_ui::TopicsBrowsePageState topics_browse_page = {};
+    epaper_ui::TopicEntriesPageState topic_entries_page = {};
     epaper_ui::SummarizePageState summarize_page = {};
     epaper_ui::NotesPageState notes_page = {};
     epaper_ui::TodosPageState todos_page = {};
@@ -195,7 +198,8 @@ const RenderSnapshot& CaptureRenderSnapshot()
     snapshot.wifi_page = s_wifi_page_state;
     snapshot.time_page = s_time_page_state;
     snapshot.dashboard_page = s_dashboard_page_state;
-    snapshot.vibe_check_page = s_vibe_check_page_state;
+    snapshot.topics_browse_page = s_topics_browse_page_state;
+    snapshot.topic_entries_page = s_topic_entries_page_state;
     snapshot.summarize_page = s_summarize_page_state;
     snapshot.notes_page = s_notes_page_state;
     snapshot.todos_page = s_todos_page_state;
@@ -450,18 +454,32 @@ void DrawTimeUnderlay(uint8_t* framebuffer, const RenderSnapshot& snapshot)
                             snapshot.global_footer);
 }
 
-void DrawVibeCheckUnderlay(uint8_t* framebuffer, const RenderSnapshot& snapshot)
+void DrawTopicsBrowseUnderlay(uint8_t* framebuffer, const RenderSnapshot& snapshot)
 {
     EpaperPanel& panel = Panel();
     panel.Clear(true);
-    epaper_ui::DrawVibeCheckPage(framebuffer,
-                                 WAVESHARE_EPD_WIDTH,
-                                 WAVESHARE_EPD_HEIGHT,
-                                 kPortraitWidth,
-                                 kPortraitHeight,
-                                 snapshot.vibe_check_page,
-                                 snapshot.status_bar,
-                                 snapshot.global_footer);
+    epaper_ui::DrawTopicsBrowsePage(framebuffer,
+                                    WAVESHARE_EPD_WIDTH,
+                                    WAVESHARE_EPD_HEIGHT,
+                                    kPortraitWidth,
+                                    kPortraitHeight,
+                                    snapshot.topics_browse_page,
+                                    snapshot.status_bar,
+                                    snapshot.global_footer);
+}
+
+void DrawTopicEntriesUnderlay(uint8_t* framebuffer, const RenderSnapshot& snapshot)
+{
+    EpaperPanel& panel = Panel();
+    panel.Clear(true);
+    epaper_ui::DrawTopicEntriesPage(framebuffer,
+                                    WAVESHARE_EPD_WIDTH,
+                                    WAVESHARE_EPD_HEIGHT,
+                                    kPortraitWidth,
+                                    kPortraitHeight,
+                                    snapshot.topic_entries_page,
+                                    snapshot.status_bar,
+                                    snapshot.global_footer);
 }
 
 void DrawSummarizeUnderlay(uint8_t* framebuffer, const RenderSnapshot& snapshot)
@@ -795,11 +813,11 @@ esp_err_t ApplyTime(RefreshMode refresh_mode)
     return ESP_OK;
 }
 
-esp_err_t ApplyVibeCheck(RefreshMode refresh_mode)
+esp_err_t ApplyTopicsBrowse(RefreshMode refresh_mode)
 {
     const RenderSnapshot& snapshot = CaptureRenderSnapshot();
     EpaperPanel& panel = Panel();
-    DrawVibeCheckUnderlay(panel.framebuffer(), snapshot);
+    DrawTopicsBrowseUnderlay(panel.framebuffer(), snapshot);
     CaptureUnderlaySnapshot(panel.framebuffer());
     DrawCurrentOverlays(panel.framebuffer(), snapshot);
 
@@ -808,7 +826,26 @@ esp_err_t ApplyVibeCheck(RefreshMode refresh_mode)
     // the whole render means an async event arriving mid-transition sees the old
     // screen, skips merging into this refresh, and lands afterwards as a separate
     // partial-waveform drive over an image that was already correct.
-    s_current_screen.store(ScreenId::kVibeCheck, std::memory_order_relaxed);
+    s_current_screen.store(ScreenId::kTopicsBrowse, std::memory_order_relaxed);
+    RefreshBusyGuard refresh_busy;
+    const esp_err_t err = RefreshForMode(panel, refresh_mode);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    LogMetrics(panel.metrics());
+    return ESP_OK;
+}
+
+esp_err_t ApplyTopicEntries(RefreshMode refresh_mode)
+{
+    const RenderSnapshot& snapshot = CaptureRenderSnapshot();
+    EpaperPanel& panel = Panel();
+    DrawTopicEntriesUnderlay(panel.framebuffer(), snapshot);
+    CaptureUnderlaySnapshot(panel.framebuffer());
+    DrawCurrentOverlays(panel.framebuffer(), snapshot);
+
+    s_current_screen.store(ScreenId::kTopicEntries, std::memory_order_relaxed);
     RefreshBusyGuard refresh_busy;
     const esp_err_t err = RefreshForMode(panel, refresh_mode);
     if (err != ESP_OK) {
@@ -1085,8 +1122,11 @@ esp_err_t RefreshCurrentScreenRegionLocked()
         case ScreenId::kTime:
             DrawTimeUnderlay(panel.framebuffer(), snapshot);
             break;
-        case ScreenId::kVibeCheck:
-            DrawVibeCheckUnderlay(panel.framebuffer(), snapshot);
+        case ScreenId::kTopicsBrowse:
+            DrawTopicsBrowseUnderlay(panel.framebuffer(), snapshot);
+            break;
+        case ScreenId::kTopicEntries:
+            DrawTopicEntriesUnderlay(panel.framebuffer(), snapshot);
             break;
         case ScreenId::kSummarize:
             DrawSummarizeUnderlay(panel.framebuffer(), snapshot);
@@ -1159,8 +1199,10 @@ esp_err_t RefreshCurrentScreenLocked(RefreshMode refresh_mode)
             return ApplyWifi(refresh_mode);
         case ScreenId::kTime:
             return ApplyTime(refresh_mode);
-        case ScreenId::kVibeCheck:
-            return ApplyVibeCheck(refresh_mode);
+        case ScreenId::kTopicsBrowse:
+            return ApplyTopicsBrowse(refresh_mode);
+        case ScreenId::kTopicEntries:
+            return ApplyTopicEntries(refresh_mode);
         case ScreenId::kSummarize:
             return ApplySummarize(refresh_mode);
         case ScreenId::kNotes:
@@ -1287,8 +1329,10 @@ void DisplayTask(void*)
                 err = ApplySettingsTopics(command.refresh_request.refresh_mode);
             } else if (command.screen == ScreenId::kTime) {
                 err = ApplyTime(command.refresh_request.refresh_mode);
-            } else if (command.screen == ScreenId::kVibeCheck) {
-                err = ApplyVibeCheck(command.refresh_request.refresh_mode);
+            } else if (command.screen == ScreenId::kTopicsBrowse) {
+                err = ApplyTopicsBrowse(command.refresh_request.refresh_mode);
+            } else if (command.screen == ScreenId::kTopicEntries) {
+                err = ApplyTopicEntries(command.refresh_request.refresh_mode);
             } else if (command.screen == ScreenId::kSummarize) {
                 err = ApplySummarize(command.refresh_request.refresh_mode);
             } else if (command.screen == ScreenId::kNotes) {
@@ -1530,14 +1574,25 @@ esp_err_t SetDashboardPageState(const epaper_ui::DashboardPageState& state)
     return ESP_OK;
 }
 
-esp_err_t SetVibeCheckPageState(const epaper_ui::VibeCheckPageState& state)
+esp_err_t SetTopicsBrowsePageState(const epaper_ui::TopicsBrowsePageState& state)
 {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
 
     std::lock_guard<std::mutex> lock(s_state_mutex);
-    s_vibe_check_page_state = state;
+    s_topics_browse_page_state = state;
+    return ESP_OK;
+}
+
+esp_err_t SetTopicEntriesPageState(const epaper_ui::TopicEntriesPageState& state)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    std::lock_guard<std::mutex> lock(s_state_mutex);
+    s_topic_entries_page_state = state;
     return ESP_OK;
 }
 
