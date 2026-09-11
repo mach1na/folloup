@@ -164,6 +164,22 @@ Open questions for whoever picks this up:
   compensation -- worth checking whether a value that looks right at room
   temperature still holds up in a noticeably colder or warmer room.
 
+**Fallback if the `kFast` tuning doesn't pan out (2026-09-11):** switch
+navigation to `kPartial` (worth trying on real screens regardless -- cheap,
+no waveform research needed, see the vendor-reader precedent on the `.txt`
+reader item above) and add a manual "force full refresh" gesture as the
+escape hatch for whatever ghosting that leaves behind, instead of only
+relying on the automatic 8-partial ghost-clear flush. Doesn't fix a
+single-shot undershoot the moment a large-area `kPartial` change happens
+(that's a different failure mode than the gradual fade the automatic flush
+already handles), but it's a cheap, low-risk thing to have either way, and
+means a user who notices ghosting isn't stuck waiting for the next automatic
+flush. Two things to work out if it's built: which gesture is actually free
+(the current map -- `UP`/`DOWN` tilt, `ACTION`/`FN`, long-press `DOWN` for
+"exit control", `PWR` reserved for the PMIC -- doesn't have an obvious
+unclaimed slot) and whether it fully replaces the automatic flush or sits
+alongside it as a backstop.
+
 ## After a manual shutdown, holding PWR sometimes doesn't power the device back on
 
 Craig's report: after using manual shutdown (PWR held ~1s -> confirm on the
