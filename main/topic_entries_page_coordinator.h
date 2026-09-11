@@ -47,6 +47,7 @@ public:
     const TimelineEntry* SelectedEntry() const { return focus_.SelectedEntry(); }
     bool item_list_active() const { return focus_.ItemListActive(); }
     const std::string& topic_id() const { return topic_id_; }
+    const std::string& topic_name() const { return topic_name_; }
 
     const page_navigation::NavigationModel& navigation_model() const
     {

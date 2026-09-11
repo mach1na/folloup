@@ -20,7 +20,7 @@ enum class SurfaceKey {
     kDashboardPage,
     kTopicsBrowsePage,
     kTopicEntriesPage,
-    kSummarizePage,
+    kTopicSummaryPage,
     kNotesPage,
     kTodosPage,
     kFollowUpPage,

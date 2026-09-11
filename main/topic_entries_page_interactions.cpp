@@ -30,6 +30,13 @@ ActivateResult HandlePrimaryActivate(TopicEntriesPageCoordinator& coordinator)
         return result;
     }
 
+    if (coordinator.IsRoleFocused(NavigationItemRole::kTopicEntriesSummarizeButton)) {
+        result.handled = true;
+        result.play_activate_cue = true;
+        result.intent = ActivateIntent::kSummarize;
+        return result;
+    }
+
     if (coordinator.IsRoleFocused(NavigationItemRole::kFooterHome)) {
         result.handled = true;
         result.play_activate_cue = true;
@@ -56,6 +63,11 @@ void ApplyPrimaryActivateResult(const ActivateResult& result, const ActivateCall
         case ActivateIntent::kViewDetails:
             if (callbacks.view_details) {
                 callbacks.view_details();
+            }
+            break;
+        case ActivateIntent::kSummarize:
+            if (callbacks.summarize) {
+                callbacks.summarize();
             }
             break;
         case ActivateIntent::kNone:
