@@ -3,6 +3,44 @@
 Open items only. Resolved/closed items (with full investigation and
 verification history) have moved to `docs/todo-archive.md`.
 
+## Full refreshes are too frequent / too visible
+
+Craig's report (2026-09-11): full refreshes happen "rather egregiously" and
+should be reduced further.
+
+Every screen-to-screen navigation in `main/app_shell.cpp` (Home, Settings,
+Wifi, Time, Notes, Todos, FollowUp, Details, Topics*, onboarding, ...) always
+requests `display_service::RefreshMode::kFull` -- the slowest, most thorough
+waveform (`EpaperPanel::RefreshFullBase()`), used unconditionally for every
+page change, not just for ghost-clearing or wake/boot recovery.
+
+The likely low-risk win: `RefreshMode::kFast` already exists end-to-end and
+is unused. `display_service.h`/`epaper_panel.h` document it as "full-screen
+redraw on the panel's fast OTP waveform: quicker than `RefreshFullBase`, but
+clears accumulated ghosting less thoroughly" (`components/epaper_panel/ssd1677_driver.cpp:226-232`,
+`RefreshFullBaseInternal(fast)` toggling the 0x1A temperature register between
+the normal and OTP-fast waveform). `RefreshForMode()` in
+`components/display_service/display_service.cpp:620-637` already dispatches
+`kFast` to `panel.RefreshFastBase()` -- but nothing in `main/` or
+`display_service` ever constructs a `RefreshRequest` with `kFast`. It was
+built for exactly this "full-screen change, not a ghost flush" case and then
+never wired up to a call site.
+
+Open questions for whoever picks this up:
+- Is `kFast` actually fast/clean enough in practice for routine page
+  navigation, or was it left unused because it was tried and rejected (check
+  git history/PR discussion for `RefreshFastBase`/`kFastWaveformTemperature`
+  before assuming it's simply forgotten)?
+- Should ordinary screen navigation switch to `kFast` while reserving `kFull`
+  for the existing ghost-clear flush (`EpaperPanel::NeedsGhostingFlush()`,
+  8-consecutive-partials trigger), wake/light-sleep recovery, and the
+  boot/onboarding first paint (`docs/app-architecture.md`'s "Boot refresh
+  policy")?
+- Since `kFast` clears ghosting less thoroughly, does alternating
+  navigation-triggers-kFast with the existing ghost-clear-flush-triggers-kFull
+  keep visible ghosting acceptable, or does it need its own counter/ceiling
+  separate from the partial-refresh ghost counter?
+
 ## After a manual shutdown, holding PWR sometimes doesn't power the device back on
 
 Craig's report: after using manual shutdown (PWR held ~1s -> confirm on the
