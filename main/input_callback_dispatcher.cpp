@@ -15,7 +15,15 @@ namespace {
 
 constexpr const char* kTag = "InputDispatch";
 constexpr const char* kTaskName = "input_callbacks";
-constexpr uint32_t kTaskStackWords = 4096;
+// Despite the name (a project-wide misnomer -- ESP-IDF's xTaskCreate takes the depth in
+// BYTES, not words), this is a byte count. 4096 was not enough: this task runs every page
+// callback, and page entry (ShowNotesScreen/ShowTodosScreen -> SyncFromArchive) reads the
+// recording archive off SD, whose FATFS/SDMMC call chain measured a 4088-byte peak against
+// the old 4096-byte stack -- zero margin, so an interrupt arriving at depth corrupted the
+// canary. FreeRTOS only validates that canary on a context switch, which is why the panic
+// surfaced on the *next* button press rather than on screen entry. Routine callbacks
+// already used 2624 bytes. 8192 matches the other real-work tasks in this project.
+constexpr uint32_t kTaskStackWords = 8192;
 constexpr size_t kMaxPendingCallbacks = 64;
 
 struct PendingCallback {

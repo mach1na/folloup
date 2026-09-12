@@ -18,6 +18,7 @@
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
+#include "esp_system.h"
 #include "feedback_service.h"
 #include "footer_runtime.h"
 #include "followup_task_config.h"
@@ -2048,11 +2049,39 @@ void InitDeviceSleepRuntime()
     }
 }
 
+const char* ResetReasonName(esp_reset_reason_t reason)
+{
+    switch (reason) {
+        case ESP_RST_POWERON: return "power-on";
+        case ESP_RST_EXT: return "external pin";
+        case ESP_RST_SW: return "software restart";
+        case ESP_RST_PANIC: return "panic or unhandled exception";
+        case ESP_RST_INT_WDT: return "interrupt watchdog";
+        case ESP_RST_TASK_WDT: return "task watchdog";
+        case ESP_RST_WDT: return "other watchdog";
+        case ESP_RST_DEEPSLEEP: return "deep sleep wake";
+        case ESP_RST_BROWNOUT: return "brownout";
+        case ESP_RST_SDIO: return "SDIO";
+        case ESP_RST_USB: return "USB peripheral";
+        case ESP_RST_JTAG: return "JTAG";
+        case ESP_RST_EFUSE: return "efuse error";
+        case ESP_RST_PWR_GLITCH: return "power glitch";
+        case ESP_RST_CPU_LOCKUP: return "CPU lockup (double exception)";
+        default: return "unknown";
+    }
+}
+
 }  // namespace
 
 void Run()
 {
     ESP_LOGI(kTag, "Followup firmware version %s", esp_app_get_description()->version);
+    // Logged first thing on every boot: without it, a reset that happens between two
+    // normal-looking boot logs is indistinguishable from a deliberate restart, which is
+    // what made the input_callbacks stack overflow take a whole session to pin down.
+    const esp_reset_reason_t reset_reason = esp_reset_reason();
+    ESP_LOGI(kTag, "Reset reason: %s (%d)", ResetReasonName(reset_reason),
+             static_cast<int>(reset_reason));
     ESP_ERROR_CHECK(power_service::EnablePowerHold());
     ConfirmPendingOtaImage();
     ESP_ERROR_CHECK(power_service::Init());
