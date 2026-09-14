@@ -36,27 +36,23 @@ A Gemini API key from [Google AI Studio](https://aistudio.google.com/) is requir
 
 Recordings, transcripts, and summaries are stored locally on the device's SD card. Your thoughts stay with you, on your own storage.
 
-### 4. Vibe-Check Your Ideas
-
-Ideas don't all age well. Review each one and decide whether it's still a vibe worth keeping — or something to trash so you can move on with a clear head.
-
-### 5. Follow Up on Tasks and Notes
+### 4. Follow Up on Tasks and Notes
 
 Mark a task or note as a follow-up to keep it on your radar. Chroninkle helps you stay on track and focused on what actually needs doing next.
 
-### 6. Your Pending Todos, Visible at a Glance
+### 5. Your Pending Todos, Visible at a Glance
 
 Lock the screen — or shut the device down — and the ePaper freezes on a summary of your pending todos instead of going blank or dark. Because e-paper holds its image with no power, that summary stays legible and in front of you even while the device is locked, asleep, or fully off.
 
-### 7. Browse Your Follow-Ups as Stickies
+### 6. Browse Your Follow-Ups as Stickies
 
 From the Home screen, open your flagged follow-ups as a stack of sticky notes you browse one at a time — a quick way to page back through what you've marked as worth revisiting, whatever it's tagged as.
 
-### 8. Group Anything Under a Topic
+### 7. Group Anything Under a Topic
 
 Tag a Note, Idea, or Todo with a topic — a project name, say — independent of what type it's tagged as. Browse everything under a topic from the Home screen, and ask Gemini for a written recap of everything ever tagged with it, no matter how long ago it was captured.
 
-### 9. Read Your Own Text Files
+### 8. Read Your Own Text Files
 
 Copy plain `.txt` files onto the SD card's `books` folder and read them right on the device. Chroninkle remembers your page in each book, so picking one back up continues where you left off.
 
@@ -64,7 +60,7 @@ Copy plain `.txt` files onto the SD card's `books` folder and read them right on
 
 | Application | Description |
 | --- | --- |
-| Idea | Capture a spark by voice and revisit it later with a vibe check |
+| Idea | Capture a spark by voice, filed alongside your Notes and groupable under a Topic |
 | To-do | Record a task hands-free and follow up until it's done |
 | Note | Keep a quick thought or reminder, transcribed automatically |
 | Follow-up | Flag the items that matter so they stay top of mind |
@@ -117,7 +113,7 @@ See the [user manual](docs/user-manual.md) for how these controls apply on every
 
 The value of Chroninkle is a quiet, always-visible place to catch your thoughts and keep the important ones in front of you. Instead of losing an idea to a forgotten note app or burying a task in a notification stream, you speak it in the moment, let Gemini turn it into clean text and a summary, and keep everything private on your SD card.
 
-Ideas get a vibe check so you only carry forward what still matters. Tasks and notes become follow-ups so you stay on track. Your pending todos stay visible at a glance on the lock screen — even locked, asleep, or shut down — and the follow-ups you've flagged are always a button away as stickies: together, a steady, low-interruption view of what's next.
+Tasks and notes become follow-ups so you stay on track. Your pending todos stay visible at a glance on the lock screen — even locked, asleep, or shut down — and the follow-ups you've flagged are always a button away as stickies: together, a steady, low-interruption view of what's next.
 
 ## License and Attribution
 
